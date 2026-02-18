@@ -1,0 +1,44 @@
+feat: complete database schema according to technical requirements
+
+## Добавлены все недостающие таблицы согласно ТЗ
+
+### Новые модели
+- City: города для организаций (name, region, country)
+- ServiceItem: элементы услуг (опции, дополнения)
+- BookingItem: выбранные элементы в бронировании
+- UserSession: сессии пользователей (session_key, ip, user_agent)
+
+### Обновленные модели
+- Organization: добавлены city, address, phone, email, description, is_active
+- Service: связь с ServiceItem через items
+- Booking: добавлено updated_at, связь с BookingItem
+- User: добавлено last_login
+
+### Индексы базы данных
+✅ Все внешние ключи (FK) имеют db_index=True
+✅ Поля для фильтрации: status, is_active, role
+✅ Поля для сортировки: created_at, price, scheduled_at
+✅ Составные индексы через Meta.indexes для оптимизации
+
+### API Endpoints
+- GET /api/organizations/cities/ - список городов
+- CRUD /api/services/items/ - элементы услуг
+- Обновлены serializers с вложенными данными
+
+### Admin панель
+- Inline редакторы для ServiceItem и BookingItem
+- Админка для City и UserSession
+- Обновлены фильтры и поиск
+
+### Документация
+- TZ_CHECKLIST.md: полный чек-лист выполнения ТЗ
+- CHANGELOG.md: обновлена история изменений
+
+## ✅ Все требования ТЗ выполнены:
+- Таблица пользователей с ролями
+- Таблица сессий пользователей
+- Таблица городов
+- Таблица организаций
+- Таблица сервисов
+- Таблица элементов сервисов
+- Индексы на всех ключевых полях
