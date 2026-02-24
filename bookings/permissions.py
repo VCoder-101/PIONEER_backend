@@ -14,7 +14,7 @@ class IsBookingOwnerOrServiceOwner(permissions.BasePermission):
             return obj.user == request.user
         
         # Владелец может видеть брони на услуги своей организации
-        if request.user.role == 'OWNER':
+        if request.user.role == 'ORGANIZATION':
             return obj.service.organization.owner == request.user
         
         return False

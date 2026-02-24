@@ -10,7 +10,7 @@ class IsOrganizationOwner(permissions.BasePermission):
             return True
         
         # Владелец может управлять только своей организацией
-        if request.user.role == 'OWNER':
+        if request.user.role == 'ORGANIZATION':
             return obj.owner == request.user
         
         # Чтение доступно всем авторизованным

@@ -11,21 +11,21 @@ class BookingViewSet(viewsets.ModelViewSet):
     """
     API для управления бронированиями.
     - ADMIN: видит все бронирования
-    - OWNER: видит бронирования на услуги своих организаций
+    - ORGANIZATION: видит бронирования на услуги своих организаций
     - CLIENT: видит только свои бронирования
     """
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated, IsBookingOwnerOrServiceOwner]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'service']
-    search_fields = ['user__email', 'service__title']
+    search_fields = ['user__phone', 'service__title']
     ordering_fields = ['scheduled_at', 'created_at']
     
     def get_queryset(self):
         user = self.request.user
         if user.role == 'ADMIN':
             return Booking.objects.all()
-        elif user.role == 'OWNER':
+        elif user.role == 'ORGANIZATION':
             return Booking.objects.filter(service__organization__owner=user)
         else:
             # Клиенты видят только свои бронирования

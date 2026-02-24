@@ -5,13 +5,15 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import Service, ServiceItem
 from .serializers import ServiceSerializer, ServiceItemSerializer
 from .permissions import IsServiceOwner
+from rest_framework.exceptions import PermissionDenied
+from organizations.models import Organization
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
     """
     API для управления услугами.
     - ADMIN: видит все услуги
-    - OWNER: видит и управляет услугами своих организаций
+    - ORGANIZATION: видит и управляет услугами своих организаций
     - CLIENT: видит только активные услуги (только чтение)
     """
     serializer_class = ServiceSerializer
@@ -20,12 +22,35 @@ class ServiceViewSet(viewsets.ModelViewSet):
     filterset_fields = ['organization', 'is_active']
     search_fields = ['title', 'description']
     ordering_fields = ['price', 'created_at']
+
+    def perform_create(self, serializer):
+        user = self.request.user
+
+        # ADMIN может создавать для любой организации
+        if user.role == "ADMIN":
+            serializer.save()
+            return
+
+        # ORGANIZATION может создавать только для своей организации
+        org_id = self.request.data.get("organization")
+        if not org_id:
+            raise PermissionDenied("organization is required")
+
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            raise PermissionDenied("organization not found")
+
+        if org.owner_id != user.id:
+            raise PermissionDenied("You can create services only for your organization")
+
+        serializer.save()
     
     def get_queryset(self):
         user = self.request.user
         if user.role == 'ADMIN':
             return Service.objects.all()
-        elif user.role == 'OWNER':
+        elif user.role == 'ORGANIZATION':
             return Service.objects.filter(organization__owner=user)
         else:
             # Клиенты видят только активные услуги
@@ -46,7 +71,7 @@ class ServiceItemViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return ServiceItem.objects.all()
-        elif user.role == 'OWNER':
+        elif user.role == 'ORGANIZATION':
             return ServiceItem.objects.filter(service__organization__owner=user)
         else:
             return ServiceItem.objects.filter(is_active=True, service__is_active=True)

@@ -10,7 +10,7 @@ class IsAdmin(permissions.BasePermission):
 class IsOwner(permissions.BasePermission):
     """Доступ только для владельцев организаций"""
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role == 'OWNER'
+        return request.user and request.user.is_authenticated and request.user.role == 'ORGANIZATION'
 
 
 class IsClient(permissions.BasePermission):
@@ -22,4 +22,4 @@ class IsClient(permissions.BasePermission):
 class IsAdminOrOwner(permissions.BasePermission):
     """Доступ для администраторов или владельцев"""
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role in ['ADMIN', 'OWNER']
+        return request.user and request.user.is_authenticated and request.user.role in ['ADMIN', 'ORGANIZATION']

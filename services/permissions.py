@@ -10,7 +10,7 @@ class IsServiceOwner(permissions.BasePermission):
             return True
         
         # Владелец может управлять услугами своей организации
-        if request.user.role == 'OWNER':
+        if request.user.role == 'ORGANIZATION':
             return obj.organization.owner == request.user
         
         # Чтение доступно всем авторизованным

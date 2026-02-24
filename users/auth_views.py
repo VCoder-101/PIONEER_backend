@@ -8,7 +8,8 @@ import random
 import uuid
 
 from .models import User, AuthCode, UserSession
-
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.permissions import IsAuthenticated
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -169,7 +170,10 @@ def verify_sms_code(request):
     
     # Обновить текущую сессию пользователя
     user.update_session(device_id, session.id)
-    
+
+    refresh = RefreshToken.for_user(user)
+    access = str(refresh.access_token)
+
     return Response({
         'message': 'Авторизация успешна',
         'user': {
@@ -181,11 +185,16 @@ def verify_sms_code(request):
         'session': {
             'id': str(session.id),
             'expires_at': session.expires_at.isoformat()
+        },
+        'jwt': {
+            'access': access,
+            'refresh': str(refresh),
         }
     }, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def logout(request):
     """
     Выйти из системы (деактивировать текущую сессию).

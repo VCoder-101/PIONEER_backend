@@ -24,7 +24,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     """
     API для управления организациями.
     - ADMIN: видит все организации
-    - OWNER: видит только свои организации
+    - ORGANIZATION: видит только свои организации
     - CLIENT: видит все организации (только чтение)
     """
     serializer_class = OrganizationSerializer
@@ -38,7 +38,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Organization.objects.all()
-        elif user.role == 'OWNER':
+        elif user.role == 'ORGANIZATION':
             return Organization.objects.filter(owner=user)
         else:
             return Organization.objects.filter(is_active=True)
