@@ -139,9 +139,14 @@ def verify_email_auth_code(request):
         )
     
     # Проверить код через email сервис
-    if not email_verification_service.verify_code(email, code, purpose='auth'):
+    result = email_verification_service.verify_code(email, code, purpose='auth')
+    
+    if not result['success']:
         return Response(
-            {'error': 'Неверный код или код истёк'},
+            {
+                'error': result['error'],
+                'attempts_left': result['attempts_left']
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -299,9 +304,14 @@ def verify_email_recovery_code(request):
         )
     
     # Проверить код через email сервис
-    if not email_verification_service.verify_code(email, code, purpose='recovery'):
+    result = email_verification_service.verify_code(email, code, purpose='recovery')
+    
+    if not result['success']:
         return Response(
-            {'error': 'Неверный код или код истёк'},
+            {
+                'error': result['error'],
+                'attempts_left': result['attempts_left']
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
     

@@ -15,6 +15,7 @@ class EmailVerificationService:
     # Тестовый код для разработки
     TEST_CODE = "4444"
     CODE_TTL = 300  # 5 минут в секундах
+    MAX_ATTEMPTS = 5  # Максимальное количество попыток
     
     def __init__(self):
         self.from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@pioneer.local')
@@ -44,7 +45,43 @@ class EmailVerificationService:
             purpose: Цель кода ('auth' или 'recovery')
         """
         cache_key = f"email_code:{purpose}:{email}"
+        attempts_key = f"email_attempts:{purpose}:{email}"
+        
+        # Сохраняем код и сбрасываем счетчик попыток
         cache.set(cache_key, code, self.CODE_TTL)
+        cache.set(attempts_key, 0, self.CODE_TTL)
+    
+    def get_attempts_left(self, email, purpose='auth'):
+        """
+        Получает количество оставшихся попыток.
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        
+        Returns:
+            int: Количество оставшихся попыток
+        """
+        attempts_key = f"email_attempts:{purpose}:{email}"
+        attempts = cache.get(attempts_key, 0)
+        return self.MAX_ATTEMPTS - attempts
+    
+    def increment_attempts(self, email, purpose='auth'):
+        """
+        Увеличивает счетчик попыток.
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        
+        Returns:
+            int: Количество оставшихся попыток
+        """
+        attempts_key = f"email_attempts:{purpose}:{email}"
+        attempts = cache.get(attempts_key, 0)
+        attempts += 1
+        cache.set(attempts_key, attempts, self.CODE_TTL)
+        return self.MAX_ATTEMPTS - attempts
     
     def verify_code(self, email, code, purpose='auth'):
         """
@@ -56,17 +93,45 @@ class EmailVerificationService:
             purpose: Цель кода ('auth' или 'recovery')
         
         Returns:
-            bool: True если код верный, False иначе
+            dict: {'success': bool, 'attempts_left': int, 'error': str}
         """
         cache_key = f"email_code:{purpose}:{email}"
+        attempts_key = f"email_attempts:{purpose}:{email}"
+        
+        # Проверяем количество попыток
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= self.MAX_ATTEMPTS:
+            return {
+                'success': False,
+                'attempts_left': 0,
+                'error': 'Превышено количество попыток. Запросите новый код.'
+            }
+        
         cached_code = cache.get(cache_key)
         
-        if cached_code and cached_code == code:
-            # Удаляем код после успешной проверки
-            cache.delete(cache_key)
-            return True
+        if not cached_code:
+            return {
+                'success': False,
+                'attempts_left': self.MAX_ATTEMPTS - attempts,
+                'error': 'Код не найден или истёк. Запросите новый код.'
+            }
         
-        return False
+        if cached_code == code:
+            # Код верный - удаляем код и счетчик попыток
+            cache.delete(cache_key)
+            cache.delete(attempts_key)
+            return {
+                'success': True,
+                'attempts_left': self.MAX_ATTEMPTS - attempts
+            }
+        else:
+            # Код неверный - увеличиваем счетчик попыток
+            attempts_left = self.increment_attempts(email, purpose)
+            return {
+                'success': False,
+                'attempts_left': attempts_left,
+                'error': f'Неверный код. Осталось попыток: {attempts_left}'
+            }
     
     def send_auth_code(self, email):
         """
