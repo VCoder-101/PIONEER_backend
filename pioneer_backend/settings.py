@@ -166,3 +166,27 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
 }
+
+# Email settings
+# В режиме разработки используем console backend (письма выводятся в консоль)
+# Для продакшена настройте SMTP и измените EMAIL_BACKEND
+if DEBUG:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.example.com')
+    EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
+    EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True') == 'True'
+    EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'noreply@example.com')
+    EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@pioneer.local')
+
+# Cache settings (для кодов подтверждения)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,  # 5 минут по умолчанию
+    }
+}

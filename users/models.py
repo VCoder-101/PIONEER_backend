@@ -38,6 +38,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_index=True,
         help_text='Формат: 8 (xxx) xxx xx xx'
     )
+    email = models.EmailField(
+        max_length=255,
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name='Email',
+        db_index=True,
+        help_text='Email для авторизации и восстановления доступа'
+    )
     role = models.CharField(
         max_length=20,
         choices=ROLE_CHOICES,
@@ -83,6 +92,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['phone']),
+            models.Index(fields=['email']),
             models.Index(fields=['role', 'is_active']),
             models.Index(fields=['-created_at']),
             models.Index(fields=['current_session_id']),

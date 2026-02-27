@@ -49,9 +49,10 @@ static/
 Thumbs.db
 *.bak
 
-# Documentation (игнорируем все MD кроме API_DOCUMENTATION.md)
-*.md
-!API_DOCUMENTATION.md
+# Documentation
+# Игнорируем временные файлы документации
+*.md.bak
+*.md.tmp
 
 # Migrations (опционально, можно раскомментировать)
 # */migrations/*.py

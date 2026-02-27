@@ -1,0 +1,42 @@
+feat: add email authentication and account recovery system
+
+Реализована система авторизации и восстановления доступа через email-коды.
+
+## Новые возможности:
+- Авторизация через email с 4-значным кодом подтверждения
+- Восстановление доступа к аккаунту через email
+- Коды хранятся в Django cache (TTL: 5 минут)
+- Автоматическое удаление кодов после использования
+- Управление сессиями (одна активная сессия на устройство)
+- Генерация JWT токенов при успешной авторизации
+
+## Технические детали:
+- Добавлено поле email в модель User (unique, indexed)
+- EmailVerificationService для генерации и отправки кодов
+- HTML-шаблоны писем с брендингом Pioneer Study
+- Console backend в dev режиме (письма в консоль)
+- SMTP backend в prod режиме (настраивается через .env)
+- Тестовый код для разработки: 4444
+
+## API Endpoints:
+- POST /api/users/auth/email/send-code/ - отправить код авторизации
+- POST /api/users/auth/email/verify-code/ - проверить код и войти
+- POST /api/users/auth/email/recovery/send-code/ - отправить код восстановления
+- POST /api/users/auth/email/recovery/verify-code/ - проверить код восстановления
+
+## Безопасность:
+- Криптографически безопасная генерация кодов (secrets.randbelow)
+- Одноразовые коды (удаляются после использования)
+- Ограничение времени жизни (5 минут)
+- Деактивация старых сессий при входе
+- Не раскрывается информация о существовании пользователя
+
+## Файлы:
+- users/email_service.py - сервис отправки email
+- users/email_auth_views.py - API эндпоинты
+- users/migrations/0002_*.py - миграция добавления email
+- EMAIL_AUTH_DOCUMENTATION.md - полная документация
+- EMAIL_AUTH_QUICKSTART.md - быстрый старт
+- EMAIL_SETUP_SUMMARY.md - краткая сводка
+- test_email_service.py - интерактивный тест
+- test_api_flow.py - тест полного цикла
