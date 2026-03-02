@@ -62,7 +62,47 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
+
+## 🐳 Запуск через Docker (рекомендуется)
+
+### Требования
+- Docker Desktop (Windows/macOS/Linux)
+- Docker Compose (идёт вместе с Docker Desktop)
+
+### 1) Запуск проекта
+В корне проекта выполните:
+```powershell
+docker compose up --build
+
+После запуска:
+  Админка: http://127.0.0.1:8000/admin/
+  API: http://127.0.0.1:8000/api/
+
+
+2) Остановка контейнеров
+
+docker compose down
+
+3) Создание суперпользователя (внутри Docker)
+
+Пока контейнеры запущены, в новом терминале выполните: 
+
+docker compose exec web python manage.py createsuperuser
+
+4) Демоданные (опционально)
+
+Создаёт 5 клиентов, 5 организаций и 5 организаций (для теста):
+
+docker compose exec web python manage.py seed_demo
+
+5) Полный сброс Docker-БД (ВНИМАНИЕ)
+Удаляет volume с данными Postgres внутри Docker (все данные в Docker-БД будут потеряны):
+
+docker compose down -v
+
 Сервер будет доступен по адресу: http://127.0.0.1:8000/
+
+
 
 ## 📚 Документация
 
