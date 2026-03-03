@@ -7,14 +7,15 @@ http://127.0.0.1:8000/api/
 
 ## Аутентификация
 
-Система использует аутентификацию по номеру телефона через SMS-код (без пароля).
+Система использует беспарольную аутентификацию через email-коды.
 
 ### Особенности:
-- ✅ Регистрация и вход через SMS-код
+- ✅ Регистрация и вход через email-код (БЕЗ ПАРОЛЕЙ)
+- ✅ JWT токены (access + refresh)
 - ✅ Одна активная сессия на одном устройстве
-- ✅ TTL SMS-кода: 5 минут
-- ✅ Максимум 3 попытки ввода кода
-- ✅ Защита от спама (1 минута между запросами)
+- ✅ TTL email-кода: 5 минут
+- ✅ Максимум 5 попыток ввода кода
+- ✅ Тестовый код в dev режиме: 4444
 
 ---
 
@@ -31,7 +32,7 @@ http://127.0.0.1:8000/api/
 - Просмотр бронирований на услуги своих организаций
 
 ### CLIENT (Клиент)
-- Просмотр всех организаций (только чтение)
+- Просмотр активных организаций (только чтение)
 - Просмотр активных услуг (только чтение)
 - Создание и управление своими бронированиями
 
@@ -41,14 +42,14 @@ http://127.0.0.1:8000/api/
 
 ### Аутентификация
 
-#### 1. Отправить SMS-код
+#### 1. Отправить email-код для входа
 
 ```http
 POST /api/users/auth/send-code/
 Content-Type: application/json
 
 {
-  "phone": "8 (999) 123 45 67",
+  "email": "user@example.com",
   "privacy_policy_accepted": true  // обязательно для новых пользователей
 }
 ```
@@ -56,64 +57,109 @@ Content-Type: application/json
 **Ответ (200 OK):**
 ```json
 {
-  "message": "SMS-код отправлен",
-  "phone": "89991234567",
-  "code_id": "uuid",
-  "dev_code": "123456"  // ТОЛЬКО ДЛЯ РАЗРАБОТКИ!
+  "message": "Код отправлен на email",
+  "email": "user@example.com",
+  "dev_code": "4444"  // ТОЛЬКО ДЛЯ РАЗРАБОТКИ!
 }
 ```
 
 **Ошибки:**
-- `400` - Номер телефона обязателен
-- `400` - Необходимо принять политику конфиденциальности
-- `429` - Код уже отправлен. Подождите 1 минуту.
+- `400` - Email обязателен
+- `400` - Некорректный email
+- `400` - Необходимо принять политику конфиденциальности (для новых пользователей)
 
-#### 2. Проверить SMS-код и авторизоваться
+---
+
+#### 2. Проверить email-код и авторизоваться
 
 ```http
 POST /api/users/auth/verify-code/
 Content-Type: application/json
 
 {
-  "phone": "8 (999) 123 45 67",
-  "code": "123456",
-  "device_id": "unique-device-identifier",
-  "privacy_policy_accepted": true  // для новых пользователей
+  "email": "user@example.com",
+  "code": "4444",
+  "device_id": "unique-device-identifier"
 }
 ```
 
 **Ответ (200 OK):**
 ```json
 {
-  "message": "Авторизация успешна",
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
   "user": {
     "id": "uuid",
-    "phone": "89991234567",
+    "email": "user@example.com",
+    "phone": "79001234567",
     "role": "CLIENT",
-    "is_new": true
-  },
-  "session": {
-    "id": "uuid",
-    "expires_at": "2026-03-20T12:00:00Z"
+    "is_active": true,
+    "created_at": "2026-02-18T12:00:00Z"
   }
 }
 ```
 
 **Ошибки:**
-- `400` - Необходимы: phone, code, device_id
+- `400` - Необходимы: email, code, device_id
 - `400` - Код не найден или истёк. Запросите новый код.
 - `400` - Превышено количество попыток. Запросите новый код.
 - `400` - Неверный код (+ attempts_left)
 
-#### 3. Выйти из системы
+---
+
+#### 3. Отправить код для восстановления доступа
+
+```http
+POST /api/users/auth/recovery/send-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Код восстановления отправлен на email",
+  "email": "user@example.com",
+  "dev_code": "4444"  // ТОЛЬКО ДЛЯ РАЗРАБОТКИ!
+}
+```
+
+---
+
+#### 4. Проверить код восстановления
+
+```http
+POST /api/users/auth/recovery/verify-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "4444"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Код подтвержден. Теперь можете войти в систему.",
+  "email": "user@example.com"
+}
+```
+
+---
+
+#### 5. Выйти из системы
 
 ```http
 POST /api/users/auth/logout/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
-  "session_id": "uuid"
+  "device_id": "unique-device-identifier"
 }
 ```
 
@@ -126,19 +172,40 @@ Authorization: Bearer <session_id>
 
 ---
 
+#### 6. Обновить access токен
+
+```http
+POST /api/token/refresh/
+Content-Type: application/json
+
+{
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+}
+```
+
+---
+
 ### Users (Пользователи)
 
 #### Получить профиль текущего пользователя
 ```http
 GET /api/users/me/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Ответ:**
 ```json
 {
   "id": "uuid",
-  "phone": "89991234567",
+  "email": "user@example.com",
+  "phone": "79001234567",
   "role": "CLIENT",
   "is_active": true,
   "privacy_policy_accepted_at": "2026-02-18T12:00:00Z",
@@ -147,17 +214,25 @@ Authorization: Bearer <session_id>
 }
 ```
 
+---
+
 #### Список пользователей (только ADMIN)
 ```http
 GET /api/users/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:** Только ADMIN
+
+---
 
 #### Получить пользователя (только ADMIN)
 ```http
 GET /api/users/{id}/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:** Только ADMIN
 
 ---
 
@@ -166,7 +241,7 @@ Authorization: Bearer <session_id>
 #### Список городов
 ```http
 GET /api/organizations/cities/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Параметры:**
@@ -191,6 +266,8 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:** Все авторизованные пользователи
+
 ---
 
 ### Organizations (Организации)
@@ -198,7 +275,7 @@ Authorization: Bearer <session_id>
 #### Список организаций
 ```http
 GET /api/organizations/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Параметры фильтрации:**
@@ -219,11 +296,13 @@ GET /api/organizations/?ordering=-created_at
 - ORGANIZATION: только свои организации
 - CLIENT: только активные организации (только чтение)
 
+---
+
 #### Создать организацию
 ```http
 POST /api/organizations/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "name": "Салон красоты",
@@ -236,20 +315,28 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:** ADMIN, ORGANIZATION
+
 **Примечание:** `owner` устанавливается автоматически из текущего пользователя.
+
+---
 
 #### Получить организацию
 ```http
 GET /api/organizations/{id}/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:** Все авторизованные пользователи
+
+---
 
 #### Обновить организацию
 ```http
 PUT /api/organizations/{id}/
 PATCH /api/organizations/{id}/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "name": "Новое название",
@@ -257,11 +344,21 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:** 
+- ADMIN: любую организацию
+- ORGANIZATION: только свою организацию
+
+---
+
 #### Удалить организацию
 ```http
 DELETE /api/organizations/{id}/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:** 
+- ADMIN: любую организацию
+- ORGANIZATION: только свою организацию
 
 ---
 
@@ -270,7 +367,7 @@ Authorization: Bearer <session_id>
 #### Список услуг
 ```http
 GET /api/services/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Параметры фильтрации:**
@@ -291,11 +388,13 @@ GET /api/services/?ordering=-price
 - ORGANIZATION: услуги своих организаций
 - CLIENT: только активные услуги (только чтение)
 
+---
+
 #### Создать услугу
 ```http
 POST /api/services/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "organization": 1,
@@ -306,6 +405,10 @@ Authorization: Bearer <session_id>
   "is_active": true
 }
 ```
+
+**Доступ:** 
+- ADMIN: для любой организации
+- ORGANIZATION: только для своей организации
 
 **Ответ включает вложенные элементы услуги:**
 ```json
@@ -330,7 +433,7 @@ Authorization: Bearer <session_id>
 #### Список элементов услуг
 ```http
 GET /api/services/items/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Параметры:**
@@ -339,11 +442,18 @@ Authorization: Bearer <session_id>
 - `?is_active=true` - только активные элементы
 - `?ordering=order` - сортировка по порядку
 
+**Доступ:**
+- ADMIN: все элементы
+- ORGANIZATION: элементы услуг своих организаций
+- CLIENT: только активные элементы
+
+---
+
 #### Создать элемент услуги
 ```http
 POST /api/services/items/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "service": 1,
@@ -356,6 +466,8 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:** ADMIN, ORGANIZATION (только для услуг своих организаций)
+
 ---
 
 ### Bookings (Бронирования)
@@ -363,13 +475,13 @@ Authorization: Bearer <session_id>
 #### Список бронирований
 ```http
 GET /api/bookings/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
 
 **Параметры фильтрации:**
 - `?status=NEW` - фильтр по статусу (NEW, CONFIRMED, CANCELLED, DONE)
 - `?service={id}` - фильтр по услуге
-- `?search=89991234567` - поиск по телефону пользователя или названию услуги
+- `?search=user@example.com` - поиск по email пользователя или названию услуги
 - `?ordering=scheduled_at` - сортировка по дате
 
 **Примеры:**
@@ -384,11 +496,13 @@ GET /api/bookings/?ordering=-scheduled_at
 - ORGANIZATION: бронирования на услуги своих организаций
 - CLIENT: только свои бронирования
 
+---
+
 #### Создать бронирование
 ```http
 POST /api/bookings/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "service": 1,
@@ -397,6 +511,8 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:** Все авторизованные пользователи
+
 **Примечание:** `user` устанавливается автоматически из текущего пользователя.
 
 **Ответ включает вложенные элементы:**
@@ -404,7 +520,7 @@ Authorization: Bearer <session_id>
 {
   "id": 1,
   "user": "uuid",
-  "user_phone": "89991234567",
+  "user_email": "user@example.com",
   "service": 1,
   "service_title": "Массаж спины",
   "status": "NEW",
@@ -415,18 +531,27 @@ Authorization: Bearer <session_id>
 }
 ```
 
+---
+
 #### Получить бронирование
 ```http
 GET /api/bookings/{id}/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:**
+- ADMIN: любое бронирование
+- ORGANIZATION: бронирования на услуги своих организаций
+- CLIENT: только свои бронирования
+
+---
 
 #### Обновить бронирование
 ```http
 PUT /api/bookings/{id}/
 PATCH /api/bookings/{id}/
 Content-Type: application/json
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 
 {
   "status": "CONFIRMED",
@@ -434,11 +559,23 @@ Authorization: Bearer <session_id>
 }
 ```
 
+**Доступ:**
+- ADMIN: любое бронирование
+- ORGANIZATION: бронирования на услуги своих организаций
+- CLIENT: только свои бронирования
+
+---
+
 #### Удалить бронирование
 ```http
 DELETE /api/bookings/{id}/
-Authorization: Bearer <session_id>
+Authorization: Bearer <access_token>
 ```
+
+**Доступ:**
+- ADMIN: любое бронирование
+- ORGANIZATION: бронирования на услуги своих организаций
+- CLIENT: только свои бронирования
 
 ---
 
@@ -482,7 +619,26 @@ GET /api/services/?page=2
 - `401 Unauthorized` - Требуется аутентификация
 - `403 Forbidden` - Недостаточно прав
 - `404 Not Found` - Ресурс не найден
-- `429 Too Many Requests` - Слишком много запросов
+
+### Формат ошибок
+
+**401 (не авторизован):**
+```json
+{
+  "error": "Требуется авторизация",
+  "detail": "Вы не авторизованы. Пожалуйста, войдите в систему.",
+  "code": "not_authenticated"
+}
+```
+
+**403 (нет прав):**
+```json
+{
+  "error": "Доступ запрещен",
+  "detail": "Только администраторы имеют доступ к этому ресурсу",
+  "code": "permission_denied"
+}
+```
 
 ---
 
@@ -490,12 +646,12 @@ GET /api/services/?page=2
 
 ### Сценарий 1: Регистрация клиента и создание бронирования
 
-**1. Отправить SMS-код:**
+**1. Отправить email-код:**
 ```bash
 curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
   -H "Content-Type: application/json" \
   -d '{
-    "phone": "8 (999) 123 45 67",
+    "email": "client@example.com",
     "privacy_policy_accepted": true
   }'
 ```
@@ -505,29 +661,39 @@ curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
 curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
   -H "Content-Type: application/json" \
   -d '{
-    "phone": "8 (999) 123 45 67",
-    "code": "123456",
-    "device_id": "my-device-123",
-    "privacy_policy_accepted": true
+    "email": "client@example.com",
+    "code": "4444",
+    "device_id": "my-device-123"
   }'
+```
+
+**Ответ:**
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "user": {...}
+}
 ```
 
 **3. Просмотр доступных услуг:**
 ```bash
 curl -X GET http://127.0.0.1:8000/api/services/?is_active=true \
-  -H "Authorization: Bearer <session_id>"
+  -H "Authorization: Bearer <access_token>"
 ```
 
 **4. Создание бронирования:**
 ```bash
 curl -X POST http://127.0.0.1:8000/api/bookings/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <session_id>" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "service": 1,
     "scheduled_at": "2026-02-20T14:00:00Z"
   }'
 ```
+
+---
 
 ### Сценарий 2: Владелец создает организацию и услугу
 
@@ -537,7 +703,7 @@ curl -X POST http://127.0.0.1:8000/api/bookings/ \
 curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
   -H "Content-Type: application/json" \
   -d '{
-    "phone": "8 (999) 888 77 66",
+    "email": "owner@example.com",
     "privacy_policy_accepted": true
   }'
 
@@ -545,10 +711,9 @@ curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
 curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
   -H "Content-Type: application/json" \
   -d '{
-    "phone": "8 (999) 888 77 66",
-    "code": "123456",
-    "device_id": "owner-device-123",
-    "privacy_policy_accepted": true
+    "email": "owner@example.com",
+    "code": "4444",
+    "device_id": "owner-device-123"
   }'
 ```
 
@@ -556,7 +721,7 @@ curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
 ```bash
 curl -X POST http://127.0.0.1:8000/api/organizations/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <session_id>" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "name": "Салон красоты",
     "city": 1,
@@ -569,7 +734,7 @@ curl -X POST http://127.0.0.1:8000/api/organizations/ \
 ```bash
 curl -X POST http://127.0.0.1:8000/api/services/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <session_id>" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "organization": 1,
     "title": "Стрижка",
@@ -583,7 +748,7 @@ curl -X POST http://127.0.0.1:8000/api/services/ \
 **4. Просмотр бронирований на свои услуги:**
 ```bash
 curl -X GET http://127.0.0.1:8000/api/bookings/ \
-  -H "Authorization: Bearer <session_id>"
+  -H "Authorization: Bearer <access_token>"
 ```
 
 ---
@@ -591,34 +756,51 @@ curl -X GET http://127.0.0.1:8000/api/bookings/ \
 ## Безопасность
 
 ### Защита от брутфорса
-- Максимум 3 попытки ввода SMS-кода
-- После 3 неудачных попыток код становится недействительным
+- Максимум 5 попыток ввода email-кода
+- После 5 неудачных попыток код становится недействительным
+- Нужно запросить новый код
 
-### Защита от спама
-- Минимум 1 минута между запросами кода на один номер
+### Беспарольная система
+- Пароли НЕ используются
+- Вход только через email-коды
+- Коды одноразовые и короткоживущие
+
+### JWT токены
+- Access token: 30 минут
+- Refresh token: 30 дней
+- Токены подписаны SECRET_KEY
 
 ### Одна активная сессия
 - При логине на новом устройстве старая сессия деактивируется
+- Хранится device_id и session_id
 
 ### TTL
-- SMS-код: 5 минут
-- Сессия: 30 дней
+- Email-код: 5 минут
+- Access token: 30 минут
+- Refresh token: 30 дней
+
+### Проверка прав
+- Все endpoints защищены (требуют авторизации)
+- Проверка ролей на уровне ViewSet
+- Object-level permissions для владения ресурсами
+- Queryset filtering по ролям
 
 ---
 
-## Интеграция с SMS-провайдером
+## Email настройки
 
-В режиме разработки код возвращается в ответе API.
+В режиме разработки:
+- Код всегда: `4444`
+- Email отправляется через Яндекс SMTP (Dmitry4424@yandex.ru)
 
 **ВАЖНО:** Перед деплоем в продакшен:
-1. Интегрировать SMS-провайдер (Twilio, SMS.ru, SMSC.ru)
-2. Удалить поле `dev_code` из ответа `/api/users/auth/send-code/`
-3. Настроить переменные окружения для SMS-провайдера
+1. Убрать тестовый код `4444`
+2. Настроить production SMTP
+3. Удалить поле `dev_code` из ответов API
 
 ---
 
 ## Дополнительная документация
 
-- [AUTH_SYSTEM.md](AUTH_SYSTEM.md) - Подробная документация системы аутентификации
 - [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) - Схема базы данных
 - [README.md](README.md) - Общая информация о проекте

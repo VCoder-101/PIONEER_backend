@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/login.css" %}">{% endblock %}
+
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+
+{% block usertools %}{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content_title %}{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <form method="post" id="login-form">
+    {% csrf_token %}
+    
+    <h1>Вход в админ-панель Pioneer Study</h1>
+    <p>Введите ваш email. Мы отправим код подтверждения.</p>
+    
+    {% if messages %}
+      {% for message in messages %}
+        <div class="{% if message.tags %}{{ message.tags }}{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+    
+    <div class="form-row">
+      <label for="id_email" class="required">Email:</label>
+      <input type="email" name="email" id="id_email" required autofocus>
+    </div>
+    
+    <div class="submit-row">
+      <input type="submit" value="Отправить код">
+    </div>
+  </form>
+</div>
+{% endblock %}

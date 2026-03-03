@@ -145,6 +145,12 @@ STATIC_URL = 'static/'
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
+# Authentication Backends
+AUTHENTICATION_BACKENDS = [
+    'users.backends.EmailBackend',  # Кастомный backend для входа по email
+    'django.contrib.auth.backends.ModelBackend',  # Дефолтный backend (fallback)
+]
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -159,6 +165,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'pioneer_backend.exception_handlers.custom_exception_handler',
 }
 
 
@@ -168,19 +175,14 @@ SIMPLE_JWT = {
 }
 
 # Email settings
-# В режиме разработки используем console backend (письма выводятся в консоль)
-# Для продакшена настройте SMTP и измените EMAIL_BACKEND
-if DEBUG:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-else:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.example.com')
-    EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
-    EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True') == 'True'
-    EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'noreply@example.com')
-    EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@pioneer.local')
+# Используем Яндекс SMTP
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.yandex.ru')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'Dmitry4424@yandex.ru')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', os.getenv('EMAIL_HOST_USER', 'Dmitry4424@yandex.ru'))
 
 # Cache settings (для кодов подтверждения)
 CACHES = {

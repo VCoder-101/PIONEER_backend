@@ -1,0 +1,49 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/login.css" %}">{% endblock %}
+
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+
+{% block usertools %}{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content_title %}{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <form method="post" id="login-form">
+    {% csrf_token %}
+    
+    <h1>Введите код подтверждения</h1>
+    <p>Код отправлен на <strong>{{ email }}</strong></p>
+    <p><small>Код действителен 5 минут. У вас 5 попыток.</small></p>
+    
+    {% if messages %}
+      {% for message in messages %}
+        <div class="{% if message.tags %}{{ message.tags }}{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+    
+    <div class="form-row">
+      <label for="id_code" class="required">Код:</label>
+      <input type="text" name="code" id="id_code" maxlength="4" pattern="[0-9]{4}" required autofocus placeholder="4444">
+    </div>
+    
+    <div class="submit-row">
+      <input type="submit" value="Войти">
+    </div>
+    
+    <p style="margin-top: 20px;">
+      <a href="{% url 'admin_login_request_code' %}">← Запросить новый код</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

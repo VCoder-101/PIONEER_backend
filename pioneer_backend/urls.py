@@ -16,8 +16,16 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from users.admin_auth_views import admin_login_request_code, admin_login_verify_code
+
+# Переопределяем стандартный login URL для админки
+admin.site.login = admin_login_request_code
 
 urlpatterns = [
+    # Кастомные маршруты для входа в админку
+    path('admin/login/', admin_login_request_code, name='admin_login_request_code'),
+    path('admin/login/verify/', admin_login_verify_code, name='admin_login_verify_code'),
+    
     path('admin/', admin.site.urls),
     path('api/users/', include('users.urls')),
     path('api/organizations/', include('organizations.urls')),

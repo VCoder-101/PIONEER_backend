@@ -371,3 +371,40 @@ def get_client_ip(request):
     else:
         ip = request.META.get('REMOTE_ADDR')
     return ip
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    """
+    Выйти из системы (деактивировать текущую сессию).
+    
+    Body:
+    {
+        "session_id": "uuid"
+    }
+    """
+    session_id = request.data.get('session_id')
+    
+    if not session_id:
+        return Response(
+            {'error': 'session_id обязателен'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        session = UserSession.objects.get(id=session_id, user=request.user)
+        session.deactivate()
+        
+        # Очистить текущую сессию у пользователя
+        if str(request.user.current_session_id) == session_id:
+            request.user.current_session_id = None
+            request.user.current_device_id = None
+            request.user.save(update_fields=['current_session_id', 'current_device_id'])
+        
+        return Response({'message': 'Выход выполнен'}, status=status.HTTP_200_OK)
+    except UserSession.DoesNotExist:
+        return Response(
+            {'error': 'Сессия не найдена'},
+            status=status.HTTP_404_NOT_FOUND
+        )

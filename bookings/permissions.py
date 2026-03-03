@@ -4,6 +4,14 @@ from rest_framework import permissions
 class IsBookingOwnerOrServiceOwner(permissions.BasePermission):
     """Клиент видит свои брони, владелец - брони на свои услуги"""
     
+    def has_permission(self, request, view):
+        # Проверяем что пользователь авторизован
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        # Все авторизованные могут создавать и читать
+        return True
+    
     def has_object_permission(self, request, view, obj):
         # Админ может всё
         if request.user.role == 'ADMIN':

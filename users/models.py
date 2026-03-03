@@ -5,24 +5,28 @@ import uuid
 
 
 class UserManager(BaseUserManager):
-    def create_user(self, phone, **extra_fields):
-        if not phone:
-            raise ValueError('Номер телефона обязателен')
-        user = self.model(phone=phone, **extra_fields)
+    def create_user(self, email, **extra_fields):
+        if not email:
+            raise ValueError('Email обязателен')
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        # Не устанавливаем пароль - авторизация только через email-коды
+        user.set_unusable_password()
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, phone, **extra_fields):
+    def create_superuser(self, email, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('role', 'ADMIN')
-        return self.create_user(phone, **extra_fields)
+        return self.create_user(email, **extra_fields)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
     """
     Пользователь системы.
-    Аутентификация по номеру телефона через SMS-код.
+    Аутентификация ТОЛЬКО по email через код подтверждения.
+    Пароли не используются!
     """
     ROLE_CHOICES = [
         ('ADMIN', 'Администратор'),
@@ -31,21 +35,20 @@ class User(AbstractBaseUser, PermissionsMixin):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    phone = models.CharField(
-        max_length=20,
-        unique=True,
-        verbose_name='Номер телефона',
-        db_index=True,
-        help_text='Формат: 8 (xxx) xxx xx xx'
-    )
     email = models.EmailField(
         max_length=255,
-        null=True,
-        blank=True,
         unique=True,
         verbose_name='Email',
         db_index=True,
-        help_text='Email для авторизации и восстановления доступа'
+        help_text='Email для авторизации через код подтверждения'
+    )
+    phone = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name='Номер телефона',
+        db_index=True,
+        help_text='Формат: 8 (xxx) xxx xx xx (опционально)'
     )
     role = models.CharField(
         max_length=20,
@@ -83,7 +86,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = 'phone'
+    USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
     class Meta:
@@ -91,15 +94,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name_plural = 'Пользователи'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['phone']),
             models.Index(fields=['email']),
+            models.Index(fields=['phone']),
             models.Index(fields=['role', 'is_active']),
             models.Index(fields=['-created_at']),
             models.Index(fields=['current_session_id']),
         ]
 
     def __str__(self):
-        return self.phone
+        return self.email
     
     def accept_privacy_policy(self):
         """Принять политику конфиденциальности"""
@@ -112,52 +115,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         self.current_session_id = session_id
         self.last_login_at = timezone.now()
         self.save(update_fields=['current_device_id', 'current_session_id', 'last_login_at'])
-
-
-class AuthCode(models.Model):
-    """
-    SMS-коды для аутентификации.
-    TTL: 5 минут
-    Максимум попыток: 3
-    """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    phone = models.CharField(max_length=20, verbose_name='Номер телефона', db_index=True)
-    code = models.CharField(max_length=6, verbose_name='SMS-код')
-    attempts_left = models.IntegerField(default=3, verbose_name='Осталось попыток')
-    is_used = models.BooleanField(default=False, verbose_name='Использован')
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создан', db_index=True)
-    expires_at = models.DateTimeField(verbose_name='Истекает', db_index=True)
-
-    class Meta:
-        verbose_name = 'SMS-код'
-        verbose_name_plural = 'SMS-коды'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['phone', 'is_used']),
-            models.Index(fields=['expires_at']),
-            models.Index(fields=['-created_at']),
-        ]
-
-    def __str__(self):
-        return f"Код для {self.phone} - {self.code}"
-    
-    def is_valid(self):
-        """Проверить валидность кода"""
-        return (
-            not self.is_used and
-            self.attempts_left > 0 and
-            timezone.now() < self.expires_at
-        )
-    
-    def use_attempt(self):
-        """Использовать попытку"""
-        self.attempts_left -= 1
-        self.save(update_fields=['attempts_left'])
-    
-    def mark_as_used(self):
-        """Отметить как использованный"""
-        self.is_used = True
-        self.save(update_fields=['is_used'])
 
 
 class UserSession(models.Model):
@@ -191,7 +148,7 @@ class UserSession(models.Model):
         ]
 
     def __str__(self):
-        return f"Сессия {self.user.phone} - {self.device_id}"
+        return f"Сессия {self.user.email} - {self.device_id}"
     
     def deactivate(self):
         """Деактивировать сессию"""

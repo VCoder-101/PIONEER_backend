@@ -18,7 +18,7 @@ class EmailVerificationService:
     MAX_ATTEMPTS = 5  # Максимальное количество попыток
     
     def __init__(self):
-        self.from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@pioneer.local')
+        self.from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'Dmitry4424@yandex.ru')
         self.is_dev = getattr(settings, 'DEBUG', True)
     
     def generate_code(self, use_test_code=None):
