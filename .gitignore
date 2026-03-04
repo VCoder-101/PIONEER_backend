@@ -54,6 +54,9 @@ Thumbs.db
 *.md.bak
 *.md.tmp
 
+# Commit messages
+COMMIT_MSG.txt
+
 # Migrations (опционально, можно раскомментировать)
 # */migrations/*.py
 # !*/migrations/__init__.py
