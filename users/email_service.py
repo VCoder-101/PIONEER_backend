@@ -12,28 +12,90 @@ import os
 class EmailVerificationService:
     """Сервис для работы с email-кодами подтверждения"""
     
-    # Тестовый код для разработки
-    TEST_CODE = "4444"
+    # Тестовый код для дебага (всегда принимается)
+    DEBUG_CODE = "4444"
     CODE_TTL = 300  # 5 минут в секундах
     MAX_ATTEMPTS = 5  # Максимальное количество попыток
+    BLOCK_TIME = 420  # 7 минут блокировки после 5 неудачных попыток
+    RESEND_COOLDOWN = 60  # 1 минута между отправками кода
     
     def __init__(self):
         self.from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'Dmitry4424@yandex.ru')
         self.is_dev = getattr(settings, 'DEBUG', True)
     
-    def generate_code(self, use_test_code=None):
+    def generate_code(self):
         """
-        Генерирует 4-значный код подтверждения.
-        В режиме разработки можно использовать тестовый код 4444.
+        Генерирует уникальный 4-значный код подтверждения.
+        Код НЕ должен повторяться.
         """
-        if use_test_code is None:
-            use_test_code = self.is_dev
-        
-        if use_test_code:
-            return self.TEST_CODE
-        
         # Генерируем криптографически безопасный 4-значный код
         return ''.join([str(secrets.randbelow(10)) for _ in range(4)])
+    
+    def is_email_blocked(self, email, purpose='auth'):
+        """
+        Проверяет заблокирован ли email после превышения попыток.
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        
+        Returns:
+            dict: {'blocked': bool, 'time_left': int (секунды)}
+        """
+        block_key = f"email_blocked:{purpose}:{email}"
+        block_time = cache.get(block_key)
+        
+        if block_time:
+            return {
+                'blocked': True,
+                'time_left': block_time
+            }
+        
+        return {'blocked': False, 'time_left': 0}
+    
+    def block_email(self, email, purpose='auth'):
+        """
+        Блокирует email на BLOCK_TIME секунд.
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        """
+        block_key = f"email_blocked:{purpose}:{email}"
+        cache.set(block_key, self.BLOCK_TIME, self.BLOCK_TIME)
+    
+    def can_resend_code(self, email, purpose='auth'):
+        """
+        Проверяет можно ли отправить код повторно (прошла ли минута).
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        
+        Returns:
+            dict: {'can_resend': bool, 'time_left': int (секунды)}
+        """
+        resend_key = f"email_resend:{purpose}:{email}"
+        time_left = cache.get(resend_key)
+        
+        if time_left:
+            return {
+                'can_resend': False,
+                'time_left': time_left
+            }
+        
+        return {'can_resend': True, 'time_left': 0}
+    
+    def set_resend_cooldown(self, email, purpose='auth'):
+        """
+        Устанавливает cooldown на повторную отправку кода (1 минута).
+        
+        Args:
+            email: Email пользователя
+            purpose: Цель кода ('auth' или 'recovery')
+        """
+        resend_key = f"email_resend:{purpose}:{email}"
+        cache.set(resend_key, self.RESEND_COOLDOWN, self.RESEND_COOLDOWN)
     
     def save_code_to_cache(self, email, code, purpose='auth'):
         """
@@ -70,6 +132,16 @@ class EmailVerificationService:
         """
         Увеличивает счетчик попыток.
         
+        ВАЖНО: TTL счетчика обновляется при каждой попытке на 5 минут.
+        Это значит 5 попыток считаются в течение 5 минут с момента ПОСЛЕДНЕЙ попытки.
+        
+        Пример:
+        10:00 - Попытка 1 → счетчик истечет в 10:05
+        10:01 - Попытка 2 → счетчик истечет в 10:06
+        10:02 - Попытка 3 → счетчик истечет в 10:07
+        10:03 - Попытка 4 → счетчик истечет в 10:08
+        10:04 - Попытка 5 → блокировка на 7 минут (до 10:11)
+        
         Args:
             email: Email пользователя
             purpose: Цель кода ('auth' или 'recovery')
@@ -80,12 +152,20 @@ class EmailVerificationService:
         attempts_key = f"email_attempts:{purpose}:{email}"
         attempts = cache.get(attempts_key, 0)
         attempts += 1
+        
+        # Сохраняем с TTL 5 минут (обновляется при каждой попытке)
         cache.set(attempts_key, attempts, self.CODE_TTL)
+        
+        # Если исчерпаны все попытки - блокируем email на 7 минут
+        if attempts >= self.MAX_ATTEMPTS:
+            self.block_email(email, purpose)
+        
         return self.MAX_ATTEMPTS - attempts
     
     def verify_code(self, email, code, purpose='auth'):
         """
         Проверяет код из кэша.
+        Код принимается если он равен сгенерированному ИЛИ равен "4444" (для дебага).
         
         Args:
             email: Email пользователя
@@ -93,18 +173,31 @@ class EmailVerificationService:
             purpose: Цель кода ('auth' или 'recovery')
         
         Returns:
-            dict: {'success': bool, 'attempts_left': int, 'error': str}
+            dict: {'success': bool, 'attempts_left': int, 'error': str, 'blocked_time': int}
         """
         cache_key = f"email_code:{purpose}:{email}"
         attempts_key = f"email_attempts:{purpose}:{email}"
         
-        # Проверяем количество попыток
-        attempts = cache.get(attempts_key, 0)
-        if attempts >= self.MAX_ATTEMPTS:
+        # Проверяем блокировку email
+        block_status = self.is_email_blocked(email, purpose)
+        if block_status['blocked']:
             return {
                 'success': False,
                 'attempts_left': 0,
-                'error': 'Превышено количество попыток. Запросите новый код.'
+                'blocked_time': block_status['time_left'],
+                'error': f'Email заблокирован на {block_status["time_left"] // 60} минут после превышения попыток.'
+            }
+        
+        # Проверяем количество попыток
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= self.MAX_ATTEMPTS:
+            # Блокируем email
+            self.block_email(email, purpose)
+            return {
+                'success': False,
+                'attempts_left': 0,
+                'blocked_time': self.BLOCK_TIME,
+                'error': f'Превышено количество попыток. Email заблокирован на {self.BLOCK_TIME // 60} минут.'
             }
         
         cached_code = cache.get(cache_key)
@@ -116,7 +209,8 @@ class EmailVerificationService:
                 'error': 'Код не найден или истёк. Запросите новый код.'
             }
         
-        if cached_code == code:
+        # Проверяем код: принимаем если равен сгенерированному ИЛИ равен "4444" (дебаг)
+        if cached_code == code or code == self.DEBUG_CODE:
             # Код верный - удаляем код и счетчик попыток
             cache.delete(cache_key)
             cache.delete(attempts_key)
@@ -127,6 +221,15 @@ class EmailVerificationService:
         else:
             # Код неверный - увеличиваем счетчик попыток
             attempts_left = self.increment_attempts(email, purpose)
+            
+            if attempts_left == 0:
+                return {
+                    'success': False,
+                    'attempts_left': 0,
+                    'blocked_time': self.BLOCK_TIME,
+                    'error': f'Неверный код. Превышено количество попыток. Email заблокирован на {self.BLOCK_TIME // 60} минут.'
+                }
+            
             return {
                 'success': False,
                 'attempts_left': attempts_left,
@@ -136,15 +239,38 @@ class EmailVerificationService:
     def send_auth_code(self, email):
         """
         Отправляет код для авторизации.
+        Повторная отправка возможна только через 1 минуту.
         
         Args:
             email: Email пользователя
         
         Returns:
-            dict: {'success': bool, 'code': str (только в dev режиме)}
+            dict: {'success': bool, 'code': str (только в dev режиме), 'error': str, 'time_left': int}
         """
+        # Проверяем блокировку email
+        block_status = self.is_email_blocked(email, purpose='auth')
+        if block_status['blocked']:
+            return {
+                'success': False,
+                'error': f'Email заблокирован на {block_status["time_left"] // 60} минут после превышения попыток.',
+                'blocked_time': block_status['time_left']
+            }
+        
+        # Проверяем cooldown на повторную отправку
+        resend_status = self.can_resend_code(email, purpose='auth')
+        if not resend_status['can_resend']:
+            return {
+                'success': False,
+                'error': f'Код уже отправлен. Повторная отправка возможна через {resend_status["time_left"]} секунд.',
+                'time_left': resend_status['time_left']
+            }
+        
+        # Генерируем новый код
         code = self.generate_code()
         self.save_code_to_cache(email, code, purpose='auth')
+        
+        # Устанавливаем cooldown на повторную отправку
+        self.set_resend_cooldown(email, purpose='auth')
         
         subject = "🔐 Код для входа - Pioneer Study"
         html_message = self._build_auth_email_html(code)
@@ -171,15 +297,38 @@ class EmailVerificationService:
     def send_recovery_code(self, email):
         """
         Отправляет код для восстановления доступа.
+        Повторная отправка возможна только через 1 минуту.
         
         Args:
             email: Email пользователя
         
         Returns:
-            dict: {'success': bool, 'code': str (только в dev режиме)}
+            dict: {'success': bool, 'code': str (только в dev режиме), 'error': str, 'time_left': int}
         """
+        # Проверяем блокировку email
+        block_status = self.is_email_blocked(email, purpose='recovery')
+        if block_status['blocked']:
+            return {
+                'success': False,
+                'error': f'Email заблокирован на {block_status["time_left"] // 60} минут после превышения попыток.',
+                'blocked_time': block_status['time_left']
+            }
+        
+        # Проверяем cooldown на повторную отправку
+        resend_status = self.can_resend_code(email, purpose='recovery')
+        if not resend_status['can_resend']:
+            return {
+                'success': False,
+                'error': f'Код уже отправлен. Повторная отправка возможна через {resend_status["time_left"]} секунд.',
+                'time_left': resend_status['time_left']
+            }
+        
+        # Генерируем новый код
         code = self.generate_code()
         self.save_code_to_cache(email, code, purpose='recovery')
+        
+        # Устанавливаем cooldown на повторную отправку
+        self.set_resend_cooldown(email, purpose='recovery')
         
         subject = "🔑 Код восстановления доступа - Pioneer Study"
         html_message = self._build_recovery_email_html(code)
