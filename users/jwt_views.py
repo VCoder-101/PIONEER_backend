@@ -40,11 +40,12 @@ def verify_jwt_token(request):
                 "valid": True,
                 "user": {
                     "id": str(user.id),
-                    "phone": user.phone,
+                    "email": user.email,
+                    "name": user.name,
                     "role": user.role,
-                    "roles": [user.role],  # если фронту нужен массив ролей
+                    "roles": [user.role],
                     "is_active": user.is_active,
-                },
+},
                 "token": {
                     "user_id": str(user_id),
                     "exp": int(token["exp"]) if "exp" in token else None,

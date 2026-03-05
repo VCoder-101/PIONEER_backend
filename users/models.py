@@ -42,6 +42,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_index=True,
         help_text='Email для авторизации через код подтверждения'
     )
+    name = models.CharField(
+        max_length=150,
+        null=True,
+        blank=True,
+        verbose_name="Имя",
+        help_text="Имя пользователя (опционально)"
+    )
     phone = models.CharField(
         max_length=20,
         null=True,

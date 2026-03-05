@@ -1,13 +1,13 @@
 from django.http import JsonResponse
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-# что НЕ трогаем (публичные ручки и админка)
+# Публичные пути (auth и админка)
+# Всё, что начинается с /api/users/auth/ — публичное (send/verify/register/login/recovery/jwt-verify и т.д.)
 EXEMPT_PREFIXES = (
     "/admin/",
-    "/api/users/auth/send-code/",
-    "/api/users/auth/verify-code/",
-    "/api/users/auth/jwt/verify/",  # verify должен быть публичным по заданию
+    "/api/users/auth/",
 )
+
 
 class JWTAuthorizationMiddleware:
     def __init__(self, get_response):
@@ -17,7 +17,7 @@ class JWTAuthorizationMiddleware:
     def __call__(self, request):
         path = request.path
 
-        # пропускаем exempt пути
+        # пропускаем публичные пути
         if any(path.startswith(p) for p in EXEMPT_PREFIXES):
             return self.get_response(request)
 
