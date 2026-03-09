@@ -1,0 +1,2 @@
+# Принудительно LF для shell-скриптов (важно для Docker на Windows)
+*.sh text eol=lf
