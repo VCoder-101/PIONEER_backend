@@ -272,6 +272,14 @@ class EmailVerificationService:
         # Устанавливаем cooldown на повторную отправку
         self.set_resend_cooldown(email, purpose='auth')
         
+        # В режиме разработки просто возвращаем успех без отправки email
+        if self.is_dev:
+            print(f"[DEV MODE] Код для {email}: {code}")
+            return {
+                'success': True,
+                'dev_code': code
+            }
+        
         subject = "🔐 Код для входа - Pioneer Study"
         html_message = self._build_auth_email_html(code)
         
@@ -285,13 +293,16 @@ class EmailVerificationService:
             email_msg.content_subtype = "html"
             email_msg.send()
             
-            result = {'success': True}
-            if self.is_dev:
-                result['dev_code'] = code
-            
-            return result
+            return {'success': True}
         except Exception as e:
             print(f"Ошибка отправки email: {e}")
+            # В dev режиме возвращаем успех даже при ошибке отправки
+            if self.is_dev:
+                return {
+                    'success': True,
+                    'dev_code': code,
+                    'email_error': str(e)
+                }
             return {'success': False, 'error': str(e)}
     
     def send_recovery_code(self, email):

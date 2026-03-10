@@ -14,6 +14,9 @@ from .email_auth_views import (
     send_email_recovery_code,
     verify_email_recovery_code,
     logout,
+    # универсальная авторизация/регистрация
+    send_universal_auth_code,
+    verify_universal_auth_code,
 )
 
 router = DefaultRouter()
@@ -23,17 +26,17 @@ urlpatterns = [
     # JWT
     path("auth/jwt/verify/", verify_jwt_token, name="jwt_verify"),
 
-    # Email-регистрация
+    # Универсальная авторизация/регистрация (NEW)
+    path("auth/send-code/", send_universal_auth_code, name="universal-send-code"),
+    path("auth/verify-code/", verify_universal_auth_code, name="universal-verify-code"),
+
+    # Email-регистрация (отдельные эндпоинты)
     path("auth/email/register/send-code/", send_register_email_code, name="send-email-register-code"),
     path("auth/email/register/verify-code/", verify_register_email_code, name="verify-email-register-code"),
 
-    # Email-логин (используем существующие функции)
+    # Email-логин (отдельные эндпоинты)
     path("auth/email/login/send-code/", send_email_auth_code, name="send-email-login-code"),
     path("auth/email/login/verify-code/", verify_email_auth_code, name="verify-email-login-code"),
-
-    # Legacy (совместимость): старые пути работают как логин
-    path("auth/send-code/", send_email_auth_code, name="send-email-auth-code"),
-    path("auth/verify-code/", verify_email_auth_code, name="verify-email-auth-code"),
 
     # Recovery
     path("auth/recovery/send-code/", send_email_recovery_code, name="send-email-recovery-code"),

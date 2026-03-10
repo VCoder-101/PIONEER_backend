@@ -42,7 +42,26 @@ http://127.0.0.1:8000/api/
 
 ### Аутентификация
 
-#### 1. Отправить email-код для входа
+Система использует беспарольную аутентификацию через email-коды с **универсальными эндпоинтами**, которые автоматически определяют тип операции (регистрация или вход) по наличию имени пользователя в базе данных.
+
+### Особенности:
+- ✅ **Универсальные эндпоинты** - один URL для регистрации и входа
+- ✅ Автоматическое определение типа операции по полю `name` в БД
+- ✅ Беспарольная аутентификация через email-коды
+- ✅ JWT токены (access + refresh)
+- ✅ Одна активная сессия на одном устройстве
+- ✅ TTL email-кода: 5 минут
+- ✅ Максимум 5 попыток ввода кода
+- ✅ Тестовый код в dev режиме: 4444
+
+### Логика универсальных эндпоинтов:
+- **Пользователь не существует** → регистрация (требует `name` и `privacy_policy_accepted`)
+- **Пользователь существует, `name` заполнено** → обычный вход
+- **Пользователь существует, `name` пустое** → завершение регистрации (требует `name` и `privacy_policy_accepted`)
+
+---
+
+#### 1. Отправить код (универсальный) - ОСНОВНОЙ ЭНДПОИНТ
 
 ```http
 POST /api/users/auth/send-code/
@@ -50,27 +69,28 @@ Content-Type: application/json
 
 {
   "email": "user@example.com",
-  "privacy_policy_accepted": true  // обязательно для новых пользователей
+  "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
 }
 ```
 
 **Ответ (200 OK):**
 ```json
 {
-  "message": "Код отправлен на email",
+  "message": "Код для входа отправлен на email",
   "email": "user@example.com",
-  "dev_code": "4444"  // ТОЛЬКО ДЛЯ РАЗРАБОТКИ!
+  "auth_type": "login",  // "registration", "login", "complete_registration"
+  "dev_code": "4444"
 }
 ```
 
 **Ошибки:**
 - `400` - Email обязателен
 - `400` - Некорректный email
-- `400` - Необходимо принять политику конфиденциальности (для новых пользователей)
+- `400` - Необходимо принять политику конфиденциальности (для регистрации/завершения регистрации)
 
 ---
 
-#### 2. Проверить email-код и авторизоваться
+#### 2. Проверить код (универсальный) - ОСНОВНОЙ ЭНДПОИНТ
 
 ```http
 POST /api/users/auth/verify-code/
@@ -79,7 +99,135 @@ Content-Type: application/json
 {
   "email": "user@example.com",
   "code": "4444",
+  "device_id": "unique-device-identifier",
+  "name": "Имя пользователя",  // обязательно для регистрации/завершения регистрации
+  "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Авторизация успешна",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "Имя пользователя",
+    "role": "CLIENT",
+    "is_new": false
+  },
+  "session": {
+    "id": "uuid",
+    "expires_at": "2026-04-09T12:00:00Z"
+  },
+  "jwt": {
+    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  }
+}
+```
+
+**Ошибки:**
+- `400` - Необходимы: email, code, device_id
+- `400` - Код не найден или истёк. Запросите новый код.
+- `400` - Превышено количество попыток. Запросите новый код.
+- `400` - Неверный код (+ attempts_left)
+- `400` - Необходимо указать имя для регистрации/завершения регистрации
+- `400` - Необходимо принять политику конфиденциальности
+
+---
+
+#### Дополнительные эндпоинты
+
+Эти эндпоинты доступны для специфичных случаев, но рекомендуется использовать универсальные эндпоинты выше.
+
+#### 3. Восстановление доступа
+
+```http
+POST /api/users/auth/recovery/send-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Код восстановления отправлен на email",
+  "email": "user@example.com",
+  "dev_code": "4444"
+}
+```
+
+---
+
+#### 4. Проверить код восстановления
+
+```http
+POST /api/users/auth/recovery/verify-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "4444",
   "device_id": "unique-device-identifier"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Восстановление доступа успешно",
+  "user": {...},
+  "session": {...},
+  "jwt": {...}
+}
+```
+
+---
+
+#### 5. Выйти из системы
+
+```http
+POST /api/users/auth/logout/
+Content-Type: application/json
+Authorization: Bearer <access_token>
+
+{
+  "session_id": "uuid"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Выход выполнен"
+}
+```
+
+---
+
+#### 6. Обновить access токен
+
+```http
+POST /api/token/refresh/
+Content-Type: application/json
+
+{
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+}
+```
+
+---
 }
 ```
 
@@ -107,10 +255,10 @@ Content-Type: application/json
 
 ---
 
-#### 3. Отправить код для восстановления доступа
+#### 5. Отправить email-код для входа (существующий пользователь)
 
 ```http
-POST /api/users/auth/recovery/send-code/
+POST /api/users/auth/email/login/send-code/
 Content-Type: application/json
 
 {
@@ -129,37 +277,99 @@ Content-Type: application/json
 
 ---
 
-#### 4. Проверить код восстановления
+#### 6. Проверить email-код входа
 
 ```http
-POST /api/users/auth/recovery/verify-code/
+POST /api/users/auth/email/login/verify-code/
 Content-Type: application/json
 
 {
   "email": "user@example.com",
-  "code": "4444"
+  "code": "4444",
+  "device_id": "unique-device-identifier"
 }
 ```
 
 **Ответ (200 OK):**
 ```json
 {
-  "message": "Код подтвержден. Теперь можете войти в систему.",
-  "email": "user@example.com"
+  "message": "Авторизация успешна",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "Имя пользователя",
+    "role": "CLIENT",
+    "is_new": false
+  },
+  "session": {
+    "id": "uuid",
+    "expires_at": "2026-03-10T12:00:00Z"
+  },
+  "jwt": {
+    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  }
 }
 ```
 
 ---
 
-#### 5. Выйти из системы
+#### 7. Отправить код для восстановления доступа
 
 ```http
-POST /api/users/auth/logout/
+POST /api/users/auth/email/recovery/send-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Код восстановления отправлен на email",
+  "email": "user@example.com",
+  "dev_code": "4444"
+}
+```
+
+---
+
+#### 8. Проверить код восстановления
+
+```http
+POST /api/users/auth/email/recovery/verify-code/
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "4444",
+  "device_id": "unique-device-identifier"
+}
+```
+
+**Ответ (200 OK):**
+```json
+{
+  "message": "Восстановление доступа успешно",
+  "user": {...},
+  "session": {...},
+  "jwt": {...}
+}
+```
+
+---
+
+#### 9. Выйти из системы
+
+```http
+POST /api/users/auth/email/logout/
 Content-Type: application/json
 Authorization: Bearer <access_token>
 
 {
-  "device_id": "unique-device-identifier"
+  "session_id": "uuid"
 }
 ```
 
@@ -172,7 +382,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-#### 6. Обновить access токен
+#### 10. Обновить access токен
 
 ```http
 POST /api/token/refresh/
@@ -644,11 +854,143 @@ GET /api/services/?page=2
 
 ## Примеры использования
 
-### Сценарий 1: Регистрация клиента и создание бронирования
+### Сценарий 1: Универсальная авторизация/регистрация (Рекомендуется)
 
-**1. Отправить email-код:**
+**1. Отправить код (система автоматически определит тип):**
 ```bash
 curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "privacy_policy_accepted": true
+  }'
+```
+
+**Ответ для нового пользователя:**
+```json
+{
+  "message": "Код для регистрации отправлен на email",
+  "email": "newuser@example.com", 
+  "auth_type": "registration",
+  "dev_code": "4444"
+}
+```
+
+**2. Проверить код и завершить регистрацию:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "code": "4444",
+    "device_id": "my-device-123",
+    "name": "Иван Иванов",
+    "privacy_policy_accepted": true
+  }'
+```
+
+**Ответ:**
+```json
+{
+  "message": "Регистрация успешна",
+  "user": {
+    "id": "uuid",
+    "email": "newuser@example.com",
+    "name": "Иван Иванов",
+    "role": "CLIENT",
+    "is_new": true
+  },
+  "session": {...},
+  "jwt": {...}
+}
+```
+
+**3. Повторный вход (тот же эндпоинт):**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com"
+  }'
+```
+
+**Ответ для существующего пользователя:**
+```json
+{
+  "message": "Код для входа отправлен на email",
+  "email": "newuser@example.com",
+  "auth_type": "login",
+  "dev_code": "4444"
+}
+```
+
+**4. Проверить код для входа:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "code": "4444",
+    "device_id": "my-device-123"
+  }'
+```
+curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "privacy_policy_accepted": true
+  }'
+```
+
+**Ответ для нового пользователя:**
+```json
+{
+  "message": "Код для регистрации отправлен на email",
+  "email": "newuser@example.com",
+  "auth_type": "registration",
+  "dev_code": "4444"
+}
+```
+
+**2. Проверить код и завершить процесс:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "code": "4444",
+    "device_id": "my-device-123",
+    "name": "Иван Иванов",
+    "privacy_policy_accepted": true
+  }'
+```
+
+**3. Повторный вход (тот же эндпоинт):**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com"
+  }'
+```
+
+**Ответ для существующего пользователя:**
+```json
+{
+  "message": "Код для входа отправлен на email",
+  "email": "newuser@example.com",
+  "auth_type": "login",
+  "dev_code": "4444"
+}
+```
+
+---
+
+### Сценарий 2: Регистрация клиента (отдельные эндпоинты)
+
+**1. Отправить email-код для регистрации:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/send-code/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "client@example.com",
@@ -658,21 +1000,35 @@ curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
 
 **2. Проверить код и авторизоваться:**
 ```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
+curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/verify-code/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "client@example.com",
     "code": "4444",
-    "device_id": "my-device-123"
+    "device_id": "my-device-123",
+    "privacy_policy_accepted": true
   }'
 ```
 
 **Ответ:**
 ```json
 {
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "user": {...}
+  "message": "Регистрация успешна",
+  "user": {
+    "id": "uuid",
+    "email": "client@example.com",
+    "name": null,
+    "role": "CLIENT",
+    "is_new": true
+  },
+  "session": {
+    "id": "uuid",
+    "expires_at": "2026-04-09T12:00:00Z"
+  },
+  "jwt": {
+    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  }
 }
 ```
 
@@ -695,25 +1051,26 @@ curl -X POST http://127.0.0.1:8000/api/bookings/ \
 
 ---
 
-### Сценарий 2: Владелец создает организацию и услугу
+### Сценарий 3: Владелец создает организацию и услугу
 
 **1. Регистрация владельца:**
 ```bash
-# Отправить код
-curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
+# Отправить код для регистрации
+curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/send-code/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "owner@example.com",
     "privacy_policy_accepted": true
   }'
 
-# Проверить код (роль ORGANIZATION устанавливается админом)
-curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
+# Проверить код (роль ORGANIZATION устанавливается админом после регистрации)
+curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/verify-code/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "owner@example.com",
     "code": "4444",
-    "device_id": "owner-device-123"
+    "device_id": "owner-device-123",
+    "privacy_policy_accepted": true
   }'
 ```
 
