@@ -25,7 +25,20 @@ class City(models.Model):
 
 class Organization(models.Model):
     """Организации владельцев"""
+    
+    ORGANIZATION_TYPE_CHOICES = [
+        ('wash', 'Мойка'),
+        ('tire', 'Шиномонтаж'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'На рассмотрении'),
+        ('approved', 'Одобрена'),
+        ('rejected', 'Отклонена'),
+    ]
+    
     name = models.CharField(max_length=255, verbose_name='Название', db_index=True)
+    short_name = models.CharField(max_length=50, blank=True, verbose_name='Короткое название')
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -46,6 +59,50 @@ class Organization(models.Model):
     phone = models.CharField(max_length=20, blank=True, verbose_name='Телефон')
     email = models.EmailField(blank=True, verbose_name='Email')
     description = models.TextField(blank=True, verbose_name='Описание')
+    
+    # Новые поля
+    organization_type = models.CharField(
+        max_length=20,
+        choices=ORGANIZATION_TYPE_CHOICES,
+        default='wash',
+        verbose_name='Тип организации',
+        db_index=True
+    )
+    organization_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        verbose_name='Статус заявки',
+        db_index=True
+    )
+    organization_date_approved = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата одобрения'
+    )
+    
+    # Государственные данные
+    org_inn = models.CharField(max_length=12, blank=True, verbose_name='ИНН')
+    org_ogrn = models.CharField(max_length=15, blank=True, verbose_name='ОГРН')
+    org_kpp = models.CharField(max_length=9, blank=True, verbose_name='КПП')
+    
+    # Для шиномонтажа - диаметры дисков
+    wheel_diameters = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Диаметры дисков',
+        help_text='Массив диаметров дисков для шиномонтажа'
+    )
+    
+    # Статистика
+    count_services = models.IntegerField(default=0, verbose_name='Количество услуг')
+    summary_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        verbose_name='Итоговая стоимость'
+    )
+    
     is_active = models.BooleanField(default=True, verbose_name='Активна')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания', db_index=True)
 
@@ -57,7 +114,17 @@ class Organization(models.Model):
             models.Index(fields=['owner', 'is_active']),
             models.Index(fields=['city', 'is_active']),
             models.Index(fields=['-created_at']),
+            models.Index(fields=['organization_status']),
+            models.Index(fields=['organization_type']),
         ]
 
     def __str__(self):
         return self.name
+    def save(self, *args, **kwargs):
+        # Автоматически устанавливаем дату одобрения при смене статуса на approved
+        if self.organization_status == 'approved' and not self.organization_date_approved:
+            from django.utils import timezone
+            self.organization_date_approved = timezone.now()
+        elif self.organization_status != 'approved':
+            self.organization_date_approved = None
+        super().save(*args, **kwargs)

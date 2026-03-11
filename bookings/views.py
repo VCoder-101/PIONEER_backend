@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db import models
 from .models import Booking
 from .serializers import BookingSerializer
 from .permissions import IsBookingOwnerOrServiceOwner
@@ -25,11 +26,18 @@ class BookingViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Booking.objects.all()
-        elif user.role == 'ORGANIZATION':
-            return Booking.objects.filter(service__organization__owner=user)
         else:
-            # Клиенты видят только свои бронирования
-            return Booking.objects.filter(user=user)
+            # Проверяем, является ли пользователь владельцем организации
+            user_organizations = user.organizations.all()
+            if user_organizations.exists():
+                # Пользователь владеет организациями - показываем брони на его услуги + свои брони
+                return Booking.objects.filter(
+                    models.Q(service__organization__owner=user) | 
+                    models.Q(user=user)
+                ).distinct()
+            else:
+                # Обычный клиент - видит только свои бронирования
+                return Booking.objects.filter(user=user)
     
     def perform_create(self, serializer):
         # Автоматически устанавливаем пользователя при создании

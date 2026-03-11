@@ -30,7 +30,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     """
     ROLE_CHOICES = [
         ('ADMIN', 'Администратор'),
-        ('ORGANIZATION', 'Организация'),
         ('CLIENT', 'Клиент'),
     ]
 

@@ -10,8 +10,8 @@ class ServiceItemInline(admin.TabularInline):
 
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
-    list_display = ['title', 'organization', 'price', 'duration', 'is_active', 'created_at']
-    list_filter = ['is_active', 'organization', 'created_at']
+    list_display = ['title', 'organization', 'price', 'duration', 'status', 'is_active', 'created_at']
+    list_filter = ['status', 'is_active', 'organization', 'created_at']
     search_fields = ['title', 'organization__name']
     readonly_fields = ['created_at']
     inlines = [ServiceItemInline]

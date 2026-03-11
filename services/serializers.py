@@ -15,5 +15,5 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Service
-        fields = ['id', 'organization', 'organization_name', 'title', 'description', 'price', 'duration', 'is_active', 'items', 'created_at']
+        fields = ['id', 'organization', 'organization_name', 'title', 'description', 'price', 'duration', 'status', 'is_active', 'items', 'created_at']
         read_only_fields = ['id', 'created_at']

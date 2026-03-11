@@ -19,7 +19,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated, IsServiceOwner]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['organization', 'is_active']
+    filterset_fields = ['organization', 'is_active', 'status']
     search_fields = ['title', 'description']
     ordering_fields = ['price', 'created_at']
 
@@ -31,7 +31,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
             serializer.save()
             return
 
-        # ORGANIZATION может создавать только для своей организации
+        # Владельцы организаций могут создавать только для своих организаций
         org_id = self.request.data.get("organization")
         if not org_id:
             raise PermissionDenied("organization is required")
@@ -46,15 +46,31 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
         serializer.save()
     
+    def perform_update(self, serializer):
+        user = self.request.user
+        service = self.get_object()
+
+        # ADMIN может редактировать любые услуги
+        if user.role == "ADMIN":
+            serializer.save()
+            return
+
+        # Владельцы организаций могут редактировать только свои услуги
+        if service.organization.owner_id != user.id:
+            raise PermissionDenied("You can edit only your organization's services")
+
+        serializer.save()
+    
     def get_queryset(self):
         user = self.request.user
         if user.role == 'ADMIN':
             return Service.objects.all()
-        elif user.role == 'ORGANIZATION':
-            return Service.objects.filter(organization__owner=user)
+        elif user.role == 'CLIENT':
+            # Клиенты видят только активные услуги со статусом 'active'
+            return Service.objects.filter(is_active=True, status='active')
         else:
-            # Клиенты видят только активные услуги
-            return Service.objects.filter(is_active=True)
+            # Владельцы организаций видят все свои услуги (включая ghost)
+            return Service.objects.filter(organization__owner=user)
 
 
 class ServiceItemViewSet(viewsets.ModelViewSet):
@@ -71,7 +87,13 @@ class ServiceItemViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return ServiceItem.objects.all()
-        elif user.role == 'ORGANIZATION':
-            return ServiceItem.objects.filter(service__organization__owner=user)
+        elif user.role == 'CLIENT':
+            # Клиенты видят только элементы активных услуг со статусом 'active'
+            return ServiceItem.objects.filter(
+                is_active=True, 
+                service__is_active=True, 
+                service__status='active'
+            )
         else:
-            return ServiceItem.objects.filter(is_active=True, service__is_active=True)
+            # Владельцы организаций видят все элементы своих услуг
+            return ServiceItem.objects.filter(service__organization__owner=user)

@@ -3,6 +3,12 @@ from django.db import models
 
 class Service(models.Model):
     """Услуги организаций"""
+    
+    STATUS_CHOICES = [
+        ('active', 'Активная'),
+        ('ghost', 'Скрытая'),
+    ]
+    
     organization = models.ForeignKey(
         'organizations.Organization',
         on_delete=models.CASCADE,
@@ -14,6 +20,13 @@ class Service(models.Model):
     description = models.TextField(blank=True, verbose_name='Описание')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Цена', db_index=True)
     duration = models.IntegerField(help_text='Длительность в минутах', verbose_name='Длительность')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='active',
+        verbose_name='Статус',
+        db_index=True
+    )
     is_active = models.BooleanField(default=True, verbose_name='Активен', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания', db_index=True)
 
@@ -25,6 +38,7 @@ class Service(models.Model):
             models.Index(fields=['organization', 'is_active']),
             models.Index(fields=['is_active', 'price']),
             models.Index(fields=['-created_at']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):

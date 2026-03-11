@@ -32,6 +32,8 @@ class Booking(models.Model):
         db_index=True
     )
     scheduled_at = models.DateTimeField(verbose_name='Запланировано на', db_index=True)
+    car_model = models.CharField(max_length=100, blank=True, verbose_name='Модель автомобиля')
+    wheel_diameter = models.IntegerField(null=True, blank=True, verbose_name='Диаметр диска')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания', db_index=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 

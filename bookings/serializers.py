@@ -12,11 +12,37 @@ class BookingItemSerializer(serializers.ModelSerializer):
 
 
 class BookingSerializer(serializers.ModelSerializer):
+    customerName = serializers.CharField(source='user.name', read_only=True)
+    dateTime = serializers.DateTimeField(source='scheduled_at', format='%d/%m/%Y %H:%M')
+    carModel = serializers.CharField(source='car_model')
+    serviceMethod = serializers.CharField(source='service.title', read_only=True)
+    duration = serializers.CharField(source='service.duration', read_only=True)
+    price = serializers.DecimalField(source='service.price', max_digits=10, decimal_places=2, read_only=True)
+    wheelDiameter = serializers.IntegerField(source='wheel_diameter', required=False, allow_null=True)
+    
+    # Оригинальные поля для совместимости
     user_email = serializers.EmailField(source='user.email', read_only=True)
     service_title = serializers.CharField(source='service.title', read_only=True)
     items = BookingItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Booking
-        fields = ['id', 'user', 'user_email', 'service', 'service_title', 'status', 'scheduled_at', 'items', 'created_at', 'updated_at']
+        fields = [
+            'id', 'customerName', 'dateTime', 'carModel', 'serviceMethod', 'duration', 'price', 'wheelDiameter',
+            'user', 'user_email', 'service', 'service_title', 'status', 'scheduled_at', 'car_model', 'wheel_diameter', 'items', 'created_at', 'updated_at'
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    """Сериализатор для формата invoices (упрощенный)"""
+    customerName = serializers.CharField(source='user.name', read_only=True)
+    dateTime = serializers.DateTimeField(source='scheduled_at', format='%d/%m/%Y %H:%M', read_only=True)
+    carModel = serializers.CharField(source='car_model', read_only=True)
+    serviceMethod = serializers.CharField(source='service.title', read_only=True)
+    duration = serializers.CharField(source='service.duration', read_only=True)
+    price = serializers.DecimalField(source='service.price', max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = ['id', 'customerName', 'dateTime', 'carModel', 'serviceMethod', 'duration', 'price']

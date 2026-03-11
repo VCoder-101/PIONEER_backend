@@ -1,7 +1,10 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils import timezone
 from .models import Organization, City
 from .serializers import OrganizationSerializer, CitySerializer
 from .permissions import IsOrganizationOwner
@@ -30,7 +33,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [IsAuthenticated, IsOrganizationOwner]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['city', 'is_active']
+    filterset_fields = ['city', 'is_active', 'organization_status', 'organization_type']
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at']
     
@@ -38,11 +41,71 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Organization.objects.all()
-        elif user.role == 'ORGANIZATION':
-            return Organization.objects.filter(owner=user)
         else:
-            return Organization.objects.filter(is_active=True)
+            # Владельцы организаций видят свои организации
+            user_organizations = user.organizations.all()
+            if user_organizations.exists():
+                return user_organizations
+            else:
+                # Обычные клиенты видят только активные одобренные организации
+                return Organization.objects.filter(is_active=True, organization_status='approved')
     
     def perform_create(self, serializer):
         # Автоматически устанавливаем владельца при создании
         serializer.save(owner=self.request.user)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def approve(self, request, pk=None):
+        """Одобрить заявку организации (только для администраторов)"""
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут одобрять заявки'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        organization = self.get_object()
+        organization.organization_status = 'approved'
+        organization.organization_date_approved = timezone.now()
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        return Response({
+            'message': 'Заявка одобрена',
+            'organization': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def reject(self, request, pk=None):
+        """Отклонить заявку организации (только для администраторов)"""
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут отклонять заявки'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        organization = self.get_object()
+        organization.organization_status = 'rejected'
+        organization.organization_date_approved = None
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        return Response({
+            'message': 'Заявка отклонена',
+            'organization': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def pending(self, request):
+        """Получить все заявки на рассмотрении (только для администраторов)"""
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут просматривать заявки'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        pending_organizations = Organization.objects.filter(organization_status='pending')
+        serializer = self.get_serializer(pending_organizations, many=True)
+        return Response({
+            'count': pending_organizations.count(),
+            'results': serializer.data
+        })

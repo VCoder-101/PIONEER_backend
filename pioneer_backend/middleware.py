@@ -6,6 +6,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 EXEMPT_PREFIXES = (
     "/admin/",
     "/api/users/auth/",
+    "/api/token/refresh/",  # Добавляем refresh endpoint
 )
 
 

@@ -13,12 +13,12 @@ class IsOrganizationOwner(permissions.BasePermission):
         if request.user.role == 'ADMIN':
             return True
         
-        # Владелец может создавать и читать
-        if request.user.role == 'ORGANIZATION':
+        # Владельцы организаций могут создавать и читать
+        if hasattr(request.user, 'organizations') and request.user.organizations.exists():
             return True
         
         # Клиенты могут только читать
-        if request.user.role == 'CLIENT' and request.method in permissions.SAFE_METHODS:
+        if request.method in permissions.SAFE_METHODS:
             return True
         
         return False
@@ -29,8 +29,8 @@ class IsOrganizationOwner(permissions.BasePermission):
             return True
         
         # Владелец может управлять только своей организацией
-        if request.user.role == 'ORGANIZATION':
-            return obj.owner == request.user
+        if obj.owner == request.user:
+            return True
         
         # Чтение доступно всем авторизованным
         if request.method in permissions.SAFE_METHODS:

@@ -18,11 +18,11 @@ class IsBookingOwnerOrServiceOwner(permissions.BasePermission):
             return True
         
         # Клиент может управлять своими бронированиями
-        if request.user.role == 'CLIENT':
-            return obj.user == request.user
+        if obj.user == request.user:
+            return True
         
-        # Владелец может видеть брони на услуги своей организации
-        if request.user.role == 'ORGANIZATION':
-            return obj.service.organization.owner == request.user
+        # Владелец организации может видеть брони на услуги своей организации
+        if obj.service.organization.owner == request.user:
+            return True
         
         return False

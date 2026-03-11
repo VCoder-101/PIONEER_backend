@@ -12,17 +12,19 @@ http://127.0.0.1:8000/api/
 
 - backend уже частично реализован и пригоден для dev/staging-интеграции;
 - основной пользовательский auth flow для web-клиента: email-коды через `/api/users/auth/send-code/` и `/api/users/auth/verify-code/`;
-- роли в коде: `ADMIN`, `ORGANIZATION`, `CLIENT`;
+- роли в коде: `ADMIN`, `CLIENT` (роль `ORGANIZATION` удалена);
 - публичная регистрация создаёт только `CLIENT`;
+- владельцы организаций также имеют роль `CLIENT`, но связаны с организациями через поле `owner`;
 - рядом с основным auth flow в коде остаются legacy/specialized маршруты.
 
 ## Роли и доступ
 
 | Роль | Что реально используется в коде |
 | --- | --- |
-| `ADMIN` | Полный доступ ко всем viewsets и user API |
-| `ORGANIZATION` | Свои организации, свои услуги, бронирования по своим услугам |
-| `CLIENT` | Чтение активных организаций и услуг, CRUD своих бронирований |
+| `ADMIN` | Полный доступ ко всем viewsets и user API, управление заявками организаций |
+| `CLIENT` | Чтение активных организаций и услуг, CRUD своих бронирований. Если владеет организациями - управление ими и их услугами |
+
+**Важно:** Владельцы организаций определяются не по роли, а по связи `Organization.owner = User`. Они имеют роль `CLIENT`, но расширенные права на свои организации.
 
 ## Auth flow
 
@@ -264,7 +266,28 @@ Content-Type: application/json
 
 ### 8. Refresh token
 
-JWT refresh token выдаётся в auth-ответах, но публичный endpoint вроде `/api/token/refresh/` в проекте сейчас не подключён. Не закладывайтесь на него как на доступный API-маршрут.
+```http
+POST /api/token/refresh/
+Content-Type: application/json
+
+{
+  "refresh": "eyJ..."
+}
+```
+
+Ответ:
+
+```json
+{
+  "access": "eyJ..."
+}
+```
+
+Важно:
+- Refresh endpoint НЕ требует Bearer токена в заголовке
+- Отправляется только refresh token в теле запроса
+- Возвращается новый access token
+- Refresh token остается действительным до истечения срока (30 дней)
 
 ## Users API
 
@@ -348,35 +371,44 @@ Authorization: Bearer <access_token>
 
 ## Organizations API
 
+### Система заявок на подключение к агрегатору
+
+Все организации проходят через систему заявок с тремя статусами:
+- `pending` - на рассмотрении (по умолчанию при создании)
+- `approved` - одобрена администратором
+- `rejected` - отклонена администратором
+
 ### Доступ и видимость
 
-- `ADMIN` видит все организации;
-- `ORGANIZATION` видит только свои организации;
-- `CLIENT` видит только активные организации и только read-only.
+- `ADMIN` видит все организации и может управлять заявками;
+- Владельцы организаций (определяются по `Organization.owner`) видят только свои организации;
+- `CLIENT` видит только одобренные активные организации и только read-only.
 
 ### Список организаций
 
 ```http
-GET /api/organizations/?city=1&is_active=true&search=мойка&ordering=-created_at
+GET /api/organizations/?city=1&is_active=true&organization_status=approved&organization_type=wash&search=мойка&ordering=-created_at
 Authorization: Bearer <access_token>
 ```
 
 Фильтры:
 
-- `city`
-- `is_active`
+- `city` - фильтр по городу
+- `is_active` - активные/неактивные
+- `organization_status` - статус заявки (pending/approved/rejected)
+- `organization_type` - тип организации (wash/tire)
 
 Поиск:
 
-- `name`
-- `description`
+- `name` - название организации
+- `description` - описание
 
 Сортировка:
 
-- `name`
-- `created_at`
+- `name` - по названию
+- `created_at` - по дате создания
 
-### Создать организацию
+### Создать заявку на подключение организации
 
 ```http
 POST /api/organizations/
@@ -385,20 +417,33 @@ Content-Type: application/json
 
 {
   "name": "Чистый Кузов",
+  "shortName": "ЧК",
+  "organizationType": "wash",
   "city": 1,
   "address": "ул. Московское шоссе, 100",
   "phone": "+7 846 200-10-01",
   "email": "org@example.com",
   "description": "Мойка и детейлинг",
-  "is_active": true
+  "orgInn": "123456789012",
+  "orgOgrn": "123456789012345",
+  "orgKpp": "123456789",
+  "wheelDiameters": [13, 14, 15, 16, 17, 18]
 }
 ```
+
+**Новые обязательные поля:**
+- `shortName` - короткое название
+- `organizationType` - тип организации ("wash" или "tire")
+- `orgInn` - ИНН (до 12 символов)
+- `orgOgrn` - ОГРН (до 15 символов)
+- `orgKpp` - КПП (до 9 символов)
+- `wheelDiameters` - массив диаметров дисков (для шиномонтажа)
 
 Важно:
 
 - `perform_create()` принудительно проставляет `owner = request.user`;
-- `city`, `address`, `phone`, `email`, `description` в текущей модели необязательны;
-- при создании через API нельзя надёжно назначить произвольного owner, даже если поле есть в serializer.
+- `organization_status` автоматически устанавливается в "pending";
+- при создании через API нельзя надёжно назначить произвольного owner.
 
 Ответ:
 
@@ -406,16 +451,99 @@ Content-Type: application/json
 {
   "id": 5,
   "name": "Чистый Кузов",
+  "shortName": "ЧК",
+  "organizationStatus": "pending",
+  "organizationDateApproved": null,
   "owner": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
   "owner_email": "org-owner@example.com",
   "city": 1,
-  "city_name": "Самара",
   "address": "ул. Московское шоссе, 100",
   "phone": "+7 846 200-10-01",
   "email": "org@example.com",
   "description": "Мойка и детейлинг",
   "is_active": true,
-  "created_at": "2026-03-11T09:15:00Z"
+  "created_at": "2026-03-11T09:15:00Z",
+  "organizationType": "wash",
+  "orgOgrn": "123456789012345",
+  "orgInn": "123456789012",
+  "orgKpp": "123456789",
+  "wheelDiameters": [13, 14, 15, 16, 17, 18],
+  "countServices": 0,
+  "summaryPrice": "0.00"
+}
+```
+
+### Управление заявками (только для администраторов)
+
+#### Получить заявки на рассмотрении
+
+```http
+GET /api/organizations/pending/
+Authorization: Bearer <access_token>
+```
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "count": 2,
+  "results": [
+    {
+      "id": 5,
+      "name": "Чистый Кузов",
+      "organizationStatus": "pending",
+      "organizationDateApproved": null,
+      ...
+    }
+  ]
+}
+```
+
+#### Одобрить заявку
+
+```http
+POST /api/organizations/{id}/approve/
+Authorization: Bearer <access_token>
+```
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "message": "Заявка одобрена",
+  "organization": {
+    "id": 5,
+    "organizationStatus": "approved",
+    "organizationDateApproved": "11/03/2026",
+    ...
+  }
+}
+```
+
+#### Отклонить заявку
+
+```http
+POST /api/organizations/{id}/reject/
+Authorization: Bearer <access_token>
+```
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "message": "Заявка отклонена",
+  "organization": {
+    "id": 5,
+    "organizationStatus": "rejected",
+    "organizationDateApproved": null,
+    ...
+  }
 }
 ```
 
@@ -433,30 +561,40 @@ Content-Type: application/json
 Доступ:
 
 - `ADMIN` — все услуги;
-- `ORGANIZATION` — услуги своих организаций;
-- `CLIENT` — только активные услуги и только чтение.
+- Владельцы организаций — услуги своих организаций;
+- `CLIENT` — только активные услуги со статусом 'active' и только чтение.
+
+### Система видимости услуг
+
+Услуги имеют два уровня видимости:
+- `is_active` - общая активность услуги
+- `status` - статус видимости ('active' или 'ghost')
+
+Клиенты видят только услуги с `is_active=true` и `status='active'`.
+Владельцы организаций видят все свои услуги, включая скрытые ('ghost').
 
 Список / фильтры:
 
 ```http
-GET /api/services/?organization=1&is_active=true&search=мойка&ordering=price
+GET /api/services/?organization=1&is_active=true&status=active&search=мойка&ordering=price
 Authorization: Bearer <access_token>
 ```
 
 Фильтры:
 
-- `organization`
-- `is_active`
+- `organization` - фильтр по организации
+- `is_active` - активные/неактивные
+- `status` - статус видимости ('active'/'ghost')
 
 Поиск:
 
-- `title`
-- `description`
+- `title` - название услуги
+- `description` - описание
 
 Сортировка:
 
-- `price`
-- `created_at`
+- `price` - по цене
+- `created_at` - по дате создания
 
 Создание:
 
@@ -471,14 +609,19 @@ Content-Type: application/json
   "description": "Ручная мойка автомобиля",
   "price": "500.00",
   "duration": 60,
+  "status": "active",
   "is_active": true
 }
 ```
 
+**Новые поля:**
+- `status` - статус видимости ("active" или "ghost")
+
 Особенности:
 
 - для `ADMIN` доступно создание услуги для любой организации;
-- для `ORGANIZATION` обязательна передача `organization`, и она должна принадлежать текущему пользователю;
+- для владельцев организаций обязательна передача `organization`, и она должна принадлежать текущему пользователю;
+- владельцы могут редактировать свои услуги через `PUT/PATCH /api/services/{id}/`;
 - в read-ответах `Service` уже содержит вложенные `items`.
 
 Пример ответа:
@@ -492,6 +635,7 @@ Content-Type: application/json
   "description": "Ручная мойка автомобиля",
   "price": "500.00",
   "duration": 60,
+  "status": "active",
   "is_active": true,
   "items": [
     {
@@ -535,14 +679,13 @@ Content-Type: application/json
 Видимость списка:
 
 - `ADMIN` — все элементы;
-- `ORGANIZATION` — элементы услуг своих организаций;
-- `CLIENT` — только активные элементы активных услуг.
+- Владельцы организаций — элементы услуг своих организаций;
+- `CLIENT` — только активные элементы активных услуг со статусом 'active'.
 
 Важно:
 
-- write-права для `ServiceItemViewSet` пока не усилены отдельной role-based permission;
-- фактически write endpoints доступны любому аутентифицированному пользователю, если он знает корректный payload;
-- это текущий gap реализации, а не желаемое продуктовое поведение.
+- write-права для `ServiceItemViewSet` контролируются через проверку владения организацией;
+- владельцы организаций могут управлять элементами только своих услуг.
 
 Пример payload:
 
@@ -567,7 +710,7 @@ Content-Type: application/json
 ### Доступ
 
 - `ADMIN` — все бронирования;
-- `ORGANIZATION` — бронирования по услугам своих организаций;
+- Владельцы организаций — бронирования по услугам своих организаций + свои собственные бронирования;
 - `CLIENT` — только свои бронирования.
 
 ### Список бронирований
@@ -579,18 +722,18 @@ Authorization: Bearer <access_token>
 
 Фильтры:
 
-- `status`
-- `service`
+- `status` - статус бронирования
+- `service` - фильтр по услуге
 
 Поиск:
 
-- `user__phone`
-- `service__title`
+- `user__phone` - по телефону клиента
+- `service__title` - по названию услуги
 
 Сортировка:
 
-- `scheduled_at`
-- `created_at`
+- `scheduled_at` - по времени записи
+- `created_at` - по дате создания
 
 ### Создать бронирование
 
@@ -602,9 +745,15 @@ Content-Type: application/json
 {
   "service": 10,
   "scheduled_at": "2026-03-20T10:00:00Z",
-  "status": "NEW"
+  "status": "NEW",
+  "carModel": "Lada Vesta",
+  "wheelDiameter": 16
 }
 ```
+
+**Новые поля:**
+- `carModel` - модель автомобиля
+- `wheelDiameter` - диаметр диска
 
 Особенности текущей реализации:
 
@@ -613,7 +762,11 @@ Content-Type: application/json
 - API пока не создаёт `BookingItem` через booking payload;
 - нет проверки слотов, конфликтов времени и строгих переходов статусов.
 
-Пример ответа:
+### Формат ответа
+
+API поддерживает два формата ответа:
+
+#### Полный формат (стандартный DRF)
 
 ```json
 {
@@ -624,9 +777,29 @@ Content-Type: application/json
   "service_title": "Мойка",
   "status": "NEW",
   "scheduled_at": "2026-03-20T10:00:00Z",
+  "car_model": "Lada Vesta",
+  "wheel_diameter": 16,
   "items": [],
   "created_at": "2026-03-11T09:30:00Z",
   "updated_at": "2026-03-11T09:30:00Z"
+}
+```
+
+#### Формат invoices (для фронтенда)
+
+Каждое бронирование также содержит поля в формате invoices:
+
+```json
+{
+  "id": 42,
+  "customerName": "Иван Петров",
+  "dateTime": "20/03/2026 10:00",
+  "carModel": "Lada Vesta",
+  "serviceMethod": "Мойка",
+  "duration": "60",
+  "price": "500.00",
+  "wheelDiameter": 16,
+  ...
 }
 ```
 
@@ -682,15 +855,132 @@ Content-Type: application/json
 
 ## Что ещё не стабилизировано
 
-- нет публичного refresh endpoint;
 - основная бизнес-логика бронирований пока ограничена CRUD;
 - `BookingItem` не создаётся через booking API;
-- права записи для `ServiceItem` нужно ужесточить;
 - тесты для `organizations`, `services` и `bookings` пока почти отсутствуют;
 - конфигурация `settings.py`, Dockerfile и Compose-файл ориентированы на разработку, а не на production.
+
+## Изменения в последней версии
+
+### Организации
+- ✅ Добавлена система заявок на подключение к агрегатору
+- ✅ Новые поля: `shortName`, `organizationType`, `organizationStatus`, `organizationDateApproved`
+- ✅ Государственные данные: `orgInn`, `orgOgrn`, `orgKpp`
+- ✅ Поддержка диаметров дисков для шиномонтажа: `wheelDiameters`
+- ✅ API для аппрува/деаппрува заявок администратором
+- ✅ Удалена роль `ORGANIZATION` - владельцы имеют роль `CLIENT`
+
+### Услуги
+- ✅ Добавлено поле `status` для скрытия услуг ('active'/'ghost')
+- ✅ Возможность редактирования услуг владельцами организаций
+- ✅ Обновленная логика видимости для клиентов
+
+### Бронирования
+- ✅ Добавлены поля `carModel` и `wheelDiameter`
+- ✅ Поддержка формата invoices для фронтенда
+- ✅ Исправлена логика отображения для владельцев организаций
+- ✅ Исправлена проблема с refresh token endpoint
+- ✅ Обновленные права доступа без привязки к роли `ORGANIZATION`
+
+### Аутентификация и токены
+- ✅ Добавлен публичный refresh endpoint `/api/token/refresh/`
+- ✅ Исправлена проблема с middleware, который блокировал refresh запросы
+- ✅ Refresh token теперь можно использовать для получения нового access token
 
 ## Связанные документы
 
 - [README.md](README.md)
 - [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
 - [DOCKER_SETUP.md](DOCKER_SETUP.md)
+
+## Примеры использования
+
+### Сценарий 1: Подача заявки на подключение организации
+
+1. **Создание заявки клиентом:**
+```http
+POST /api/organizations/
+Authorization: Bearer <client_token>
+Content-Type: application/json
+
+{
+  "name": "Автомойка Блеск",
+  "shortName": "АБ",
+  "organizationType": "wash",
+  "city": 1,
+  "address": "ул. Гагарина, 50",
+  "phone": "+79171234567",
+  "email": "info@blesk.ru",
+  "description": "Современная автомойка с качественным сервисом",
+  "orgInn": "631234567890",
+  "orgOgrn": "123456789012345",
+  "orgKpp": "631201001"
+}
+```
+
+2. **Администратор просматривает заявки:**
+```http
+GET /api/organizations/pending/
+Authorization: Bearer <admin_token>
+```
+
+3. **Одобрение заявки:**
+```http
+POST /api/organizations/5/approve/
+Authorization: Bearer <admin_token>
+```
+
+### Сценарий 2: Управление услугами организации
+
+1. **Создание активной услуги:**
+```http
+POST /api/services/
+Authorization: Bearer <owner_token>
+
+{
+  "organization": 5,
+  "title": "Комплексная мойка",
+  "description": "Мойка кузова + салон + коврики",
+  "price": "800.00",
+  "duration": 45,
+  "status": "active"
+}
+```
+
+2. **Создание скрытой VIP услуги:**
+```http
+POST /api/services/
+Authorization: Bearer <owner_token>
+
+{
+  "organization": 5,
+  "title": "VIP детейлинг",
+  "description": "Премиум услуга для особых клиентов",
+  "price": "3000.00",
+  "duration": 180,
+  "status": "ghost"
+}
+```
+
+### Сценарий 3: Бронирование с информацией об автомобиле
+
+```http
+POST /api/bookings/
+Authorization: Bearer <client_token>
+
+{
+  "service": 10,
+  "scheduled_at": "2026-03-25T14:00:00Z",
+  "carModel": "BMW X5",
+  "wheelDiameter": 19
+}
+```
+
+### Сценарий 4: Просмотр бронирований владельцем организации
+
+```http
+GET /api/bookings/?service__organization__owner=me
+Authorization: Bearer <owner_token>
+```
+
+Владелец увидит все бронирования на услуги своих организаций плюс свои собственные бронирования как клиент.
