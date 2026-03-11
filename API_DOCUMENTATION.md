@@ -1,67 +1,68 @@
-# API Documentation - Pioneer Backend
+﻿# API Documentation - PIONEER Backend
 
 ## Базовый URL
-```
+
+```text
 http://127.0.0.1:8000/api/
 ```
 
+Все non-auth API в проекте сейчас работают как Bearer API. Глобальный middleware ожидает `Authorization: Bearer <access_token>` для запросов к `/api/*`, кроме путей под `/api/users/auth/`.
+
+## Текущий статус API
+
+- backend уже частично реализован и пригоден для dev/staging-интеграции;
+- основной пользовательский auth flow для web-клиента: email-коды через `/api/users/auth/send-code/` и `/api/users/auth/verify-code/`;
+- роли в коде: `ADMIN`, `ORGANIZATION`, `CLIENT`;
+- публичная регистрация создаёт только `CLIENT`;
+- рядом с основным auth flow в коде остаются legacy/specialized маршруты.
+
+## Роли и доступ
+
+| Роль | Что реально используется в коде |
+| --- | --- |
+| `ADMIN` | Полный доступ ко всем viewsets и user API |
+| `ORGANIZATION` | Свои организации, свои услуги, бронирования по своим услугам |
+| `CLIENT` | Чтение активных организаций и услуг, CRUD своих бронирований |
+
+## Auth flow
+
+### Основной flow для web-клиента
+
+1. `POST /api/users/auth/send-code/`
+2. `POST /api/users/auth/verify-code/`
+3. сохранить `jwt.access`, `jwt.refresh` и `session.id`
+4. использовать `Authorization: Bearer <access_token>`
+5. при выходе вызвать `POST /api/users/auth/logout/` с `session_id`
+
+Логика `send-code`/`verify-code`:
+
+- пользователь не найден -> регистрация;
+- пользователь найден и `name` заполнено -> обычный логин;
+- пользователь найден, но `name` пустое -> завершение регистрации.
+
+### Auth endpoints: primary vs legacy/specialized
+
+#### Основные
+
+- `POST /api/users/auth/send-code/`
+- `POST /api/users/auth/verify-code/`
+
+#### Legacy / specialized
+
+- `POST /api/users/auth/email/register/send-code/`
+- `POST /api/users/auth/email/register/verify-code/`
+- `POST /api/users/auth/email/login/send-code/`
+- `POST /api/users/auth/email/login/verify-code/`
+- `POST /api/users/auth/recovery/send-code/`
+- `POST /api/users/auth/recovery/verify-code/`
+- `POST /api/users/auth/logout/`
+- `POST /api/users/auth/jwt/verify/`
+
+`/api/users/auth/email/register/*` и `/api/users/auth/email/login/*` сохраняются как совместимый/старый surface. Для нового web-клиента ориентируйтесь на universal flow.
+
 ## Аутентификация
 
-Система использует беспарольную аутентификацию через email-коды.
-
-### Особенности:
-- ✅ Регистрация и вход через email-код (БЕЗ ПАРОЛЕЙ)
-- ✅ JWT токены (access + refresh)
-- ✅ Одна активная сессия на одном устройстве
-- ✅ TTL email-кода: 5 минут
-- ✅ Максимум 5 попыток ввода кода
-- ✅ Тестовый код в dev режиме: 4444
-
----
-
-## Роли пользователей
-
-### ADMIN
-- Полный доступ ко всем ресурсам
-- Управление пользователями
-- Просмотр всех организаций, услуг и бронирований
-
-### ORGANIZATION (Владелец организации)
-- Создание и управление своими организациями
-- Создание и управление услугами своих организаций
-- Просмотр бронирований на услуги своих организаций
-
-### CLIENT (Клиент)
-- Просмотр активных организаций (только чтение)
-- Просмотр активных услуг (только чтение)
-- Создание и управление своими бронированиями
-
----
-
-## Endpoints
-
-### Аутентификация
-
-Система использует беспарольную аутентификацию через email-коды с **универсальными эндпоинтами**, которые автоматически определяют тип операции (регистрация или вход) по наличию имени пользователя в базе данных.
-
-### Особенности:
-- ✅ **Универсальные эндпоинты** - один URL для регистрации и входа
-- ✅ Автоматическое определение типа операции по полю `name` в БД
-- ✅ Беспарольная аутентификация через email-коды
-- ✅ JWT токены (access + refresh)
-- ✅ Одна активная сессия на одном устройстве
-- ✅ TTL email-кода: 5 минут
-- ✅ Максимум 5 попыток ввода кода
-- ✅ Тестовый код в dev режиме: 4444
-
-### Логика универсальных эндпоинтов:
-- **Пользователь не существует** → регистрация (требует `name` и `privacy_policy_accepted`)
-- **Пользователь существует, `name` заполнено** → обычный вход
-- **Пользователь существует, `name` пустое** → завершение регистрации (требует `name` и `privacy_policy_accepted`)
-
----
-
-#### 1. Отправить код (универсальный) - ОСНОВНОЙ ЭНДПОИНТ
+### 1. Отправить код - основной endpoint
 
 ```http
 POST /api/users/auth/send-code/
@@ -69,28 +70,46 @@ Content-Type: application/json
 
 {
   "email": "user@example.com",
-  "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
+  "privacy_policy_accepted": true
 }
 ```
 
-**Ответ (200 OK):**
+Поля:
+
+- `email` — обязателен всегда;
+- `privacy_policy_accepted` — обязателен только если flow оказывается регистрацией или завершением регистрации.
+
+Ответ:
+
 ```json
 {
-  "message": "Код для входа отправлен на email",
+  "message": "Код для регистрации отправлен на email",
   "email": "user@example.com",
-  "auth_type": "login",  // "registration", "login", "complete_registration"
+  "auth_type": "registration",
   "dev_code": "4444"
 }
 ```
 
-**Ошибки:**
-- `400` - Email обязателен
-- `400` - Некорректный email
-- `400` - Необходимо принять политику конфиденциальности (для регистрации/завершения регистрации)
+`auth_type` может быть:
 
----
+- `registration`
+- `login`
+- `complete_registration`
 
-#### 2. Проверить код (универсальный) - ОСНОВНОЙ ЭНДПОИНТ
+Типичные ошибки:
+
+- `400` — пустой email;
+- `400` — некорректный email;
+- `400` — не принят privacy policy для регистрации / завершения регистрации;
+- `500` — send-code провалился на уровне сервиса отправки.
+
+Важно:
+
+- в `DEBUG=True` ответ может содержать `dev_code`;
+- verify flow также принимает код `4444`;
+- send endpoint не раскрывает детали resend cooldown наружу, даже если сервис отправки их учитывает.
+
+### 2. Проверить код - основной endpoint
 
 ```http
 POST /api/users/auth/verify-code/
@@ -99,49 +118,81 @@ Content-Type: application/json
 {
   "email": "user@example.com",
   "code": "4444",
-  "device_id": "unique-device-identifier",
-  "name": "Имя пользователя",  // обязательно для регистрации/завершения регистрации
-  "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
+  "device_id": "web-chrome-01",
+  "name": "Иван Иванов",
+  "privacy_policy_accepted": true
 }
 ```
 
-**Ответ (200 OK):**
+Поля:
+
+- `email`, `code`, `device_id` — обязательны всегда;
+- `name` и `privacy_policy_accepted` — обязательны для регистрации и завершения регистрации;
+- для обычного логина `name` не нужен.
+
+Ответ:
+
 ```json
 {
-  "message": "Авторизация успешна",
+  "message": "Регистрация успешна",
   "user": {
-    "id": "uuid",
+    "id": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
     "email": "user@example.com",
-    "name": "Имя пользователя",
+    "name": "Иван Иванов",
     "role": "CLIENT",
-    "is_new": false
+    "is_new": true
   },
   "session": {
-    "id": "uuid",
-    "expires_at": "2026-04-09T12:00:00Z"
+    "id": "de3ad2ad-d5d6-48c0-8f55-8ff0ad88cd2f",
+    "expires_at": "2026-04-10T09:30:00+00:00"
   },
   "jwt": {
-    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+    "access": "eyJ...",
+    "refresh": "eyJ..."
   }
 }
 ```
 
-**Ошибки:**
-- `400` - Необходимы: email, code, device_id
-- `400` - Код не найден или истёк. Запросите новый код.
-- `400` - Превышено количество попыток. Запросите новый код.
-- `400` - Неверный код (+ attempts_left)
-- `400` - Необходимо указать имя для регистрации/завершения регистрации
-- `400` - Необходимо принять политику конфиденциальности
+Типичные ошибки:
 
----
+- `400` — отсутствует одно из обязательных полей `email`, `code`, `device_id`;
+- `400` — код не найден или истёк;
+- `400` — неверный код, ответ содержит `attempts_left`;
+- `400` — не передан `name` для регистрации / завершения регистрации;
+- `400` — не принят privacy policy.
 
-#### Дополнительные эндпоинты
+### 3. Legacy registration
 
-Эти эндпоинты доступны для специфичных случаев, но рекомендуется использовать универсальные эндпоинты выше.
+```http
+POST /api/users/auth/email/register/send-code/
+POST /api/users/auth/email/register/verify-code/
+```
 
-#### 3. Восстановление доступа
+Особенности текущего legacy flow:
+
+- создаёт нового `CLIENT`;
+- `verify` не принимает `name`;
+- в результате пользователь может быть создан с `name = null`.
+
+Именно поэтому для нового web-клиента основным считается universal auth flow.
+
+### 4. Legacy login
+
+```http
+POST /api/users/auth/email/login/send-code/
+POST /api/users/auth/email/login/verify-code/
+```
+
+Используйте только если вам нужен старый раздельный flow. Поведение по JWT и `UserSession` такое же, как у универсальных endpoints.
+
+### 5. Recovery
+
+```http
+POST /api/users/auth/recovery/send-code/
+POST /api/users/auth/recovery/verify-code/
+```
+
+Пример отправки кода:
 
 ```http
 POST /api/users/auth/recovery/send-code/
@@ -152,687 +203,465 @@ Content-Type: application/json
 }
 ```
 
-**Ответ (200 OK):**
-```json
-{
-  "message": "Код восстановления отправлен на email",
-  "email": "user@example.com",
-  "dev_code": "4444"
-}
-```
+Особенности:
 
----
+- `send-code` всегда возвращает `200`, даже если пользователя с таким email нет;
+- recovery verify после успешного кода тоже создаёт `UserSession` и выдаёт JWT.
 
-#### 4. Проверить код восстановления
-
-```http
-POST /api/users/auth/recovery/verify-code/
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "code": "4444",
-  "device_id": "unique-device-identifier"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Восстановление доступа успешно",
-  "user": {...},
-  "session": {...},
-  "jwt": {...}
-}
-```
-
----
-
-#### 5. Выйти из системы
+### 6. Logout
 
 ```http
 POST /api/users/auth/logout/
-Content-Type: application/json
 Authorization: Bearer <access_token>
+Content-Type: application/json
 
 {
-  "session_id": "uuid"
+  "session_id": "de3ad2ad-d5d6-48c0-8f55-8ff0ad88cd2f"
 }
 ```
 
-**Ответ (200 OK):**
+Ответ:
+
 ```json
 {
   "message": "Выход выполнен"
 }
 ```
 
----
+`session_id` нужно брать из auth-ответа. Logout деактивирует соответствующий `UserSession`.
 
-#### 6. Обновить access токен
+### 7. Проверка JWT
 
 ```http
-POST /api/token/refresh/
+POST /api/users/auth/jwt/verify/
 Content-Type: application/json
 
 {
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  "token": "eyJ..."
 }
 ```
 
-**Ответ (200 OK):**
+Ответ:
+
 ```json
 {
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-}
-```
-
----
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "valid": true,
   "user": {
-    "id": "uuid",
+    "id": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
     "email": "user@example.com",
-    "phone": "79001234567",
+    "name": "Иван Иванов",
     "role": "CLIENT",
-    "is_active": true,
-    "created_at": "2026-02-18T12:00:00Z"
+    "roles": ["CLIENT"],
+    "is_active": true
+  },
+  "token": {
+    "user_id": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
+    "exp": 1775815200,
+    "iat": 1775813400
   }
 }
 ```
 
-**Ошибки:**
-- `400` - Необходимы: email, code, device_id
-- `400` - Код не найден или истёк. Запросите новый код.
-- `400` - Превышено количество попыток. Запросите новый код.
-- `400` - Неверный код (+ attempts_left)
+### 8. Refresh token
 
----
+JWT refresh token выдаётся в auth-ответах, но публичный endpoint вроде `/api/token/refresh/` в проекте сейчас не подключён. Не закладывайтесь на него как на доступный API-маршрут.
 
-#### 5. Отправить email-код для входа (существующий пользователь)
+## Users API
 
-```http
-POST /api/users/auth/email/login/send-code/
-Content-Type: application/json
+### `/api/users/me/`
 
-{
-  "email": "user@example.com"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Код восстановления отправлен на email",
-  "email": "user@example.com",
-  "dev_code": "4444"  // ТОЛЬКО ДЛЯ РАЗРАБОТКИ!
-}
-```
-
----
-
-#### 6. Проверить email-код входа
-
-```http
-POST /api/users/auth/email/login/verify-code/
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "code": "4444",
-  "device_id": "unique-device-identifier"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Авторизация успешна",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "name": "Имя пользователя",
-    "role": "CLIENT",
-    "is_new": false
-  },
-  "session": {
-    "id": "uuid",
-    "expires_at": "2026-03-10T12:00:00Z"
-  },
-  "jwt": {
-    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-  }
-}
-```
-
----
-
-#### 7. Отправить код для восстановления доступа
-
-```http
-POST /api/users/auth/email/recovery/send-code/
-Content-Type: application/json
-
-{
-  "email": "user@example.com"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Код восстановления отправлен на email",
-  "email": "user@example.com",
-  "dev_code": "4444"
-}
-```
-
----
-
-#### 8. Проверить код восстановления
-
-```http
-POST /api/users/auth/email/recovery/verify-code/
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "code": "4444",
-  "device_id": "unique-device-identifier"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Восстановление доступа успешно",
-  "user": {...},
-  "session": {...},
-  "jwt": {...}
-}
-```
-
----
-
-#### 9. Выйти из системы
-
-```http
-POST /api/users/auth/email/logout/
-Content-Type: application/json
-Authorization: Bearer <access_token>
-
-{
-  "session_id": "uuid"
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "message": "Выход выполнен"
-}
-```
-
----
-
-#### 10. Обновить access токен
-
-```http
-POST /api/token/refresh/
-Content-Type: application/json
-
-{
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-}
-```
-
-**Ответ (200 OK):**
-```json
-{
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-}
-```
-
----
-
-### Users (Пользователи)
-
-#### Получить профиль текущего пользователя
 ```http
 GET /api/users/me/
 Authorization: Bearer <access_token>
 ```
 
-**Ответ:**
+Ответ:
+
 ```json
 {
-  "id": "uuid",
+  "id": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
   "email": "user@example.com",
-  "phone": "79001234567",
+  "name": "Иван Иванов",
   "role": "CLIENT",
   "is_active": true,
-  "privacy_policy_accepted_at": "2026-02-18T12:00:00Z",
-  "created_at": "2026-02-18T12:00:00Z",
-  "last_login_at": "2026-02-18T12:00:00Z"
+  "privacy_policy_accepted_at": "2026-03-11T09:00:00Z",
+  "created_at": "2026-03-11T09:00:00Z",
+  "last_login_at": "2026-03-11T09:05:00Z"
 }
 ```
 
----
+### `/api/users/` и `/api/users/{id}/`
 
-#### Список пользователей (только ADMIN)
-```http
-GET /api/users/
-Authorization: Bearer <access_token>
-```
+Роутер регистрирует стандартный DRF `ModelViewSet` только для `ADMIN`.
 
-**Доступ:** Только ADMIN
+Практически это означает:
 
----
+- `GET /api/users/`
+- `POST /api/users/`
+- `GET /api/users/{id}/`
+- `PUT /api/users/{id}/`
+- `PATCH /api/users/{id}/`
+- `DELETE /api/users/{id}/`
 
-#### Получить пользователя (только ADMIN)
-```http
-GET /api/users/{id}/
-Authorization: Bearer <access_token>
-```
+Но важно понимать:
 
-**Доступ:** Только ADMIN
+- публичный onboarding идёт через auth endpoints, а не через admin user CRUD;
+- отдельного create/update контракта для admin user API в проекте пока не выделено.
 
----
+## Cities API
 
-### Cities (Города)
+### Список городов
 
-#### Список городов
 ```http
 GET /api/organizations/cities/
 Authorization: Bearer <access_token>
 ```
 
-**Параметры:**
-- `?search=Москва` - поиск по названию или региону
+Доступ: любой аутентифицированный пользователь.
 
-**Ответ:**
+Поддерживаются:
+
+- поиск: `?search=самара`
+- сортировка: `?ordering=name`
+
+Ответ:
+
 ```json
 {
-  "count": 10,
+  "count": 1,
   "next": null,
   "previous": null,
   "results": [
     {
       "id": 1,
-      "name": "Москва",
-      "region": "Московская область",
+      "name": "Самара",
+      "region": "Самарская область",
       "country": "Россия",
       "is_active": true,
-      "created_at": "2026-02-18T12:00:00Z"
+      "created_at": "2026-03-10T12:00:00Z"
     }
   ]
 }
 ```
 
-**Доступ:** Все авторизованные пользователи
+Роутер также даёт `GET /api/organizations/cities/{id}/`.
 
----
+## Organizations API
 
-### Organizations (Организации)
+### Доступ и видимость
 
-#### Список организаций
+- `ADMIN` видит все организации;
+- `ORGANIZATION` видит только свои организации;
+- `CLIENT` видит только активные организации и только read-only.
+
+### Список организаций
+
 ```http
-GET /api/organizations/
+GET /api/organizations/?city=1&is_active=true&search=мойка&ordering=-created_at
 Authorization: Bearer <access_token>
 ```
 
-**Параметры фильтрации:**
-- `?city={id}` - фильтр по городу
-- `?is_active=true` - только активные организации
-- `?search=салон` - поиск по названию и описанию
-- `?ordering=name` - сортировка по названию
+Фильтры:
 
-**Примеры:**
-```http
-GET /api/organizations/?city=1
-GET /api/organizations/?is_active=true&search=салон
-GET /api/organizations/?ordering=-created_at
-```
+- `city`
+- `is_active`
 
-**Доступ:**
-- ADMIN: все организации
-- ORGANIZATION: только свои организации
-- CLIENT: только активные организации (только чтение)
+Поиск:
 
----
+- `name`
+- `description`
 
-#### Создать организацию
+Сортировка:
+
+- `name`
+- `created_at`
+
+### Создать организацию
+
 ```http
 POST /api/organizations/
-Content-Type: application/json
 Authorization: Bearer <access_token>
+Content-Type: application/json
 
 {
-  "name": "Салон красоты",
+  "name": "Чистый Кузов",
   "city": 1,
-  "address": "ул. Ленина, 1",
-  "phone": "+7 (999) 123-45-67",
-  "email": "salon@example.com",
-  "description": "Лучший салон в городе",
+  "address": "ул. Московское шоссе, 100",
+  "phone": "+7 846 200-10-01",
+  "email": "org@example.com",
+  "description": "Мойка и детейлинг",
   "is_active": true
 }
 ```
 
-**Доступ:** ADMIN, ORGANIZATION
+Важно:
 
-**Примечание:** `owner` устанавливается автоматически из текущего пользователя.
+- `perform_create()` принудительно проставляет `owner = request.user`;
+- `city`, `address`, `phone`, `email`, `description` в текущей модели необязательны;
+- при создании через API нельзя надёжно назначить произвольного owner, даже если поле есть в serializer.
 
----
+Ответ:
 
-#### Получить организацию
-```http
-GET /api/organizations/{id}/
-Authorization: Bearer <access_token>
-```
-
-**Доступ:** Все авторизованные пользователи
-
----
-
-#### Обновить организацию
-```http
-PUT /api/organizations/{id}/
-PATCH /api/organizations/{id}/
-Content-Type: application/json
-Authorization: Bearer <access_token>
-
-{
-  "name": "Новое название",
-  "is_active": false
-}
-```
-
-**Доступ:** 
-- ADMIN: любую организацию
-- ORGANIZATION: только свою организацию
-
----
-
-#### Удалить организацию
-```http
-DELETE /api/organizations/{id}/
-Authorization: Bearer <access_token>
-```
-
-**Доступ:** 
-- ADMIN: любую организацию
-- ORGANIZATION: только свою организацию
-
----
-
-### Services (Услуги)
-
-#### Список услуг
-```http
-GET /api/services/
-Authorization: Bearer <access_token>
-```
-
-**Параметры фильтрации:**
-- `?organization={id}` - фильтр по организации
-- `?is_active=true` - только активные услуги
-- `?search=массаж` - поиск по названию и описанию
-- `?ordering=price` - сортировка по цене (добавить `-` для обратного порядка)
-
-**Примеры:**
-```http
-GET /api/services/?organization=1
-GET /api/services/?is_active=true&search=массаж
-GET /api/services/?ordering=-price
-```
-
-**Доступ:**
-- ADMIN: все услуги
-- ORGANIZATION: услуги своих организаций
-- CLIENT: только активные услуги (только чтение)
-
----
-
-#### Создать услугу
-```http
-POST /api/services/
-Content-Type: application/json
-Authorization: Bearer <access_token>
-
-{
-  "organization": 1,
-  "title": "Массаж спины",
-  "description": "Расслабляющий массаж",
-  "price": "2500.00",
-  "duration": 60,
-  "is_active": true
-}
-```
-
-**Доступ:** 
-- ADMIN: для любой организации
-- ORGANIZATION: только для своей организации
-
-**Ответ включает вложенные элементы услуги:**
 ```json
 {
-  "id": 1,
-  "organization": 1,
-  "organization_name": "Салон красоты",
-  "title": "Массаж спины",
-  "description": "Расслабляющий массаж",
-  "price": "2500.00",
-  "duration": 60,
+  "id": 5,
+  "name": "Чистый Кузов",
+  "owner": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
+  "owner_email": "org-owner@example.com",
+  "city": 1,
+  "city_name": "Самара",
+  "address": "ул. Московское шоссе, 100",
+  "phone": "+7 846 200-10-01",
+  "email": "org@example.com",
+  "description": "Мойка и детейлинг",
   "is_active": true,
-  "items": [],
-  "created_at": "2026-02-18T12:00:00Z"
+  "created_at": "2026-03-11T09:15:00Z"
 }
 ```
 
----
+Роутер также даёт:
 
-### Service Items (Элементы услуг)
+- `GET /api/organizations/{id}/`
+- `PUT /api/organizations/{id}/`
+- `PATCH /api/organizations/{id}/`
+- `DELETE /api/organizations/{id}/`
 
-#### Список элементов услуг
+## Services API
+
+### Services
+
+Доступ:
+
+- `ADMIN` — все услуги;
+- `ORGANIZATION` — услуги своих организаций;
+- `CLIENT` — только активные услуги и только чтение.
+
+Список / фильтры:
+
 ```http
-GET /api/services/items/
+GET /api/services/?organization=1&is_active=true&search=мойка&ordering=price
 Authorization: Bearer <access_token>
 ```
 
-**Параметры:**
-- `?service={id}` - фильтр по услуге
-- `?is_required=true` - только обязательные элементы
-- `?is_active=true` - только активные элементы
-- `?ordering=order` - сортировка по порядку
+Фильтры:
 
-**Доступ:**
-- ADMIN: все элементы
-- ORGANIZATION: элементы услуг своих организаций
-- CLIENT: только активные элементы
+- `organization`
+- `is_active`
 
----
+Поиск:
 
-#### Создать элемент услуги
+- `title`
+- `description`
+
+Сортировка:
+
+- `price`
+- `created_at`
+
+Создание:
+
 ```http
-POST /api/services/items/
-Content-Type: application/json
+POST /api/services/
 Authorization: Bearer <access_token>
+Content-Type: application/json
 
 {
-  "service": 1,
-  "name": "Ароматические масла",
-  "description": "Дополнительные масла для массажа",
+  "organization": 1,
+  "title": "Мойка",
+  "description": "Ручная мойка автомобиля",
   "price": "500.00",
+  "duration": 60,
+  "is_active": true
+}
+```
+
+Особенности:
+
+- для `ADMIN` доступно создание услуги для любой организации;
+- для `ORGANIZATION` обязательна передача `organization`, и она должна принадлежать текущему пользователю;
+- в read-ответах `Service` уже содержит вложенные `items`.
+
+Пример ответа:
+
+```json
+{
+  "id": 10,
+  "organization": 1,
+  "organization_name": "Чистый Кузов",
+  "title": "Мойка",
+  "description": "Ручная мойка автомобиля",
+  "price": "500.00",
+  "duration": 60,
+  "is_active": true,
+  "items": [
+    {
+      "id": 15,
+      "service": 10,
+      "name": "Мойка кузова",
+      "description": "",
+      "price": "350.00",
+      "is_required": false,
+      "is_active": true,
+      "order": 0,
+      "created_at": "2026-03-11T09:20:00Z"
+    }
+  ],
+  "created_at": "2026-03-11T09:18:00Z"
+}
+```
+
+### Service items
+
+Роуты:
+
+- `GET /api/services/items/`
+- `POST /api/services/items/`
+- `GET /api/services/items/{id}/`
+- `PUT /api/services/items/{id}/`
+- `PATCH /api/services/items/{id}/`
+- `DELETE /api/services/items/{id}/`
+
+Фильтры:
+
+- `service`
+- `is_required`
+- `is_active`
+
+Сортировка:
+
+- `order`
+- `name`
+
+Видимость списка:
+
+- `ADMIN` — все элементы;
+- `ORGANIZATION` — элементы услуг своих организаций;
+- `CLIENT` — только активные элементы активных услуг.
+
+Важно:
+
+- write-права для `ServiceItemViewSet` пока не усилены отдельной role-based permission;
+- фактически write endpoints доступны любому аутентифицированному пользователю, если он знает корректный payload;
+- это текущий gap реализации, а не желаемое продуктовое поведение.
+
+Пример payload:
+
+```http
+POST /api/services/items/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "service": 10,
+  "name": "Пылесос салона",
+  "description": "",
+  "price": "250.00",
   "is_required": false,
   "is_active": true,
   "order": 1
 }
 ```
 
-**Доступ:** ADMIN, ORGANIZATION (только для услуг своих организаций)
+## Bookings API
 
----
+### Доступ
 
-### Bookings (Бронирования)
+- `ADMIN` — все бронирования;
+- `ORGANIZATION` — бронирования по услугам своих организаций;
+- `CLIENT` — только свои бронирования.
 
-#### Список бронирований
+### Список бронирований
+
 ```http
-GET /api/bookings/
+GET /api/bookings/?status=NEW&service=10&ordering=-scheduled_at
 Authorization: Bearer <access_token>
 ```
 
-**Параметры фильтрации:**
-- `?status=NEW` - фильтр по статусу (NEW, CONFIRMED, CANCELLED, DONE)
-- `?service={id}` - фильтр по услуге
-- `?search=user@example.com` - поиск по email пользователя или названию услуги
-- `?ordering=scheduled_at` - сортировка по дате
+Фильтры:
 
-**Примеры:**
-```http
-GET /api/bookings/?status=NEW
-GET /api/bookings/?service=1&status=CONFIRMED
-GET /api/bookings/?ordering=-scheduled_at
-```
+- `status`
+- `service`
 
-**Доступ:**
-- ADMIN: все бронирования
-- ORGANIZATION: бронирования на услуги своих организаций
-- CLIENT: только свои бронирования
+Поиск:
 
----
+- `user__phone`
+- `service__title`
 
-#### Создать бронирование
+Сортировка:
+
+- `scheduled_at`
+- `created_at`
+
+### Создать бронирование
+
 ```http
 POST /api/bookings/
-Content-Type: application/json
 Authorization: Bearer <access_token>
+Content-Type: application/json
 
 {
-  "service": 1,
-  "scheduled_at": "2026-02-20T14:00:00Z",
+  "service": 10,
+  "scheduled_at": "2026-03-20T10:00:00Z",
   "status": "NEW"
 }
 ```
 
-**Доступ:** Все авторизованные пользователи
+Особенности текущей реализации:
 
-**Примечание:** `user` устанавливается автоматически из текущего пользователя.
+- `perform_create()` всегда подставляет `user = request.user`;
+- `status` можно передать сразу, если он соответствует choices модели;
+- API пока не создаёт `BookingItem` через booking payload;
+- нет проверки слотов, конфликтов времени и строгих переходов статусов.
 
-**Ответ включает вложенные элементы:**
+Пример ответа:
+
 ```json
 {
-  "id": 1,
-  "user": "uuid",
-  "user_email": "user@example.com",
-  "service": 1,
-  "service_title": "Массаж спины",
+  "id": 42,
+  "user": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
+  "user_email": "client@example.com",
+  "service": 10,
+  "service_title": "Мойка",
   "status": "NEW",
-  "scheduled_at": "2026-02-20T14:00:00Z",
+  "scheduled_at": "2026-03-20T10:00:00Z",
   "items": [],
-  "created_at": "2026-02-18T12:00:00Z",
-  "updated_at": "2026-02-18T12:00:00Z"
+  "created_at": "2026-03-11T09:30:00Z",
+  "updated_at": "2026-03-11T09:30:00Z"
 }
 ```
 
----
+Роутер также даёт:
 
-#### Получить бронирование
-```http
-GET /api/bookings/{id}/
-Authorization: Bearer <access_token>
-```
+- `GET /api/bookings/{id}/`
+- `PUT /api/bookings/{id}/`
+- `PATCH /api/bookings/{id}/`
+- `DELETE /api/bookings/{id}/`
 
-**Доступ:**
-- ADMIN: любое бронирование
-- ORGANIZATION: бронирования на услуги своих организаций
-- CLIENT: только свои бронирования
-
----
-
-#### Обновить бронирование
-```http
-PUT /api/bookings/{id}/
-PATCH /api/bookings/{id}/
-Content-Type: application/json
-Authorization: Bearer <access_token>
-
-{
-  "status": "CONFIRMED",
-  "scheduled_at": "2026-02-20T15:00:00Z"
-}
-```
-
-**Доступ:**
-- ADMIN: любое бронирование
-- ORGANIZATION: бронирования на услуги своих организаций
-- CLIENT: только свои бронирования
-
----
-
-#### Удалить бронирование
-```http
-DELETE /api/bookings/{id}/
-Authorization: Bearer <access_token>
-```
-
-**Доступ:**
-- ADMIN: любое бронирование
-- ORGANIZATION: бронирования на услуги своих организаций
-- CLIENT: только свои бронирования
-
----
-
-## Статусы бронирований
-
-- `NEW` - Новая (только создана)
-- `CONFIRMED` - Подтверждена
-- `CANCELLED` - Отменена
-- `DONE` - Завершена
-
----
+С точки зрения текущего кода это базовый CRUD, а не завершённый booking workflow.
 
 ## Пагинация
 
-Все списковые endpoints поддерживают пагинацию:
+Все list endpoints используют `PageNumberPagination`.
 
-```http
-GET /api/services/?page=2
-```
+По умолчанию:
 
-**Ответ:**
+- размер страницы: `20`
+
+Формат:
+
 ```json
 {
   "count": 45,
   "next": "http://127.0.0.1:8000/api/services/?page=3",
   "previous": "http://127.0.0.1:8000/api/services/?page=1",
-  "results": [...]
+  "results": []
 }
 ```
 
-По умолчанию: 20 элементов на страницу.
+## Формат ошибок
 
----
+### 401
 
-## Коды ответов
-
-- `200 OK` - Успешный запрос
-- `201 Created` - Ресурс создан
-- `204 No Content` - Ресурс удален
-- `400` - Ошибка валидации
-- `401 Unauthorized` - Требуется аутентификация
-- `403 Forbidden` - Недостаточно прав
-- `404 Not Found` - Ресурс не найден
-
-### Формат ошибок
-
-**401 (не авторизован):**
 ```json
 {
   "error": "Требуется авторизация",
@@ -841,323 +670,27 @@ GET /api/services/?page=2
 }
 ```
 
-**403 (нет прав):**
+### 403
+
 ```json
 {
   "error": "Доступ запрещен",
-  "detail": "Только администраторы имеют доступ к этому ресурсу",
+  "detail": "У вас нет прав для выполнения этого действия.",
   "code": "permission_denied"
 }
 ```
 
----
+## Что ещё не стабилизировано
 
-## Примеры использования
+- нет публичного refresh endpoint;
+- основная бизнес-логика бронирований пока ограничена CRUD;
+- `BookingItem` не создаётся через booking API;
+- права записи для `ServiceItem` нужно ужесточить;
+- тесты для `organizations`, `services` и `bookings` пока почти отсутствуют;
+- конфигурация `settings.py`, Dockerfile и Compose-файл ориентированы на разработку, а не на production.
 
-### Сценарий 1: Универсальная авторизация/регистрация (Рекомендуется)
+## Связанные документы
 
-**1. Отправить код (система автоматически определит тип):**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**Ответ для нового пользователя:**
-```json
-{
-  "message": "Код для регистрации отправлен на email",
-  "email": "newuser@example.com", 
-  "auth_type": "registration",
-  "dev_code": "4444"
-}
-```
-
-**2. Проверить код и завершить регистрацию:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com",
-    "code": "4444",
-    "device_id": "my-device-123",
-    "name": "Иван Иванов",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**Ответ:**
-```json
-{
-  "message": "Регистрация успешна",
-  "user": {
-    "id": "uuid",
-    "email": "newuser@example.com",
-    "name": "Иван Иванов",
-    "role": "CLIENT",
-    "is_new": true
-  },
-  "session": {...},
-  "jwt": {...}
-}
-```
-
-**3. Повторный вход (тот же эндпоинт):**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com"
-  }'
-```
-
-**Ответ для существующего пользователя:**
-```json
-{
-  "message": "Код для входа отправлен на email",
-  "email": "newuser@example.com",
-  "auth_type": "login",
-  "dev_code": "4444"
-}
-```
-
-**4. Проверить код для входа:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com",
-    "code": "4444",
-    "device_id": "my-device-123"
-  }'
-```
-curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**Ответ для нового пользователя:**
-```json
-{
-  "message": "Код для регистрации отправлен на email",
-  "email": "newuser@example.com",
-  "auth_type": "registration",
-  "dev_code": "4444"
-}
-```
-
-**2. Проверить код и завершить процесс:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/verify-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com",
-    "code": "4444",
-    "device_id": "my-device-123",
-    "name": "Иван Иванов",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**3. Повторный вход (тот же эндпоинт):**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@example.com"
-  }'
-```
-
-**Ответ для существующего пользователя:**
-```json
-{
-  "message": "Код для входа отправлен на email",
-  "email": "newuser@example.com",
-  "auth_type": "login",
-  "dev_code": "4444"
-}
-```
-
----
-
-### Сценарий 2: Регистрация клиента (отдельные эндпоинты)
-
-**1. Отправить email-код для регистрации:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client@example.com",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**2. Проверить код и авторизоваться:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/verify-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client@example.com",
-    "code": "4444",
-    "device_id": "my-device-123",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**Ответ:**
-```json
-{
-  "message": "Регистрация успешна",
-  "user": {
-    "id": "uuid",
-    "email": "client@example.com",
-    "name": null,
-    "role": "CLIENT",
-    "is_new": true
-  },
-  "session": {
-    "id": "uuid",
-    "expires_at": "2026-04-09T12:00:00Z"
-  },
-  "jwt": {
-    "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."
-  }
-}
-```
-
-**3. Просмотр доступных услуг:**
-```bash
-curl -X GET http://127.0.0.1:8000/api/services/?is_active=true \
-  -H "Authorization: Bearer <access_token>"
-```
-
-**4. Создание бронирования:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/bookings/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "service": 1,
-    "scheduled_at": "2026-02-20T14:00:00Z"
-  }'
-```
-
----
-
-### Сценарий 3: Владелец создает организацию и услугу
-
-**1. Регистрация владельца:**
-```bash
-# Отправить код для регистрации
-curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/send-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "owner@example.com",
-    "privacy_policy_accepted": true
-  }'
-
-# Проверить код (роль ORGANIZATION устанавливается админом после регистрации)
-curl -X POST http://127.0.0.1:8000/api/users/auth/email/register/verify-code/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "owner@example.com",
-    "code": "4444",
-    "device_id": "owner-device-123",
-    "privacy_policy_accepted": true
-  }'
-```
-
-**2. Создание организации:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/organizations/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "name": "Салон красоты",
-    "city": 1,
-    "address": "ул. Ленина, 1",
-    "phone": "+7 (999) 888-77-66"
-  }'
-```
-
-**3. Создание услуги:**
-```bash
-curl -X POST http://127.0.0.1:8000/api/services/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "organization": 1,
-    "title": "Стрижка",
-    "description": "Мужская стрижка",
-    "price": "1500.00",
-    "duration": 30,
-    "is_active": true
-  }'
-```
-
-**4. Просмотр бронирований на свои услуги:**
-```bash
-curl -X GET http://127.0.0.1:8000/api/bookings/ \
-  -H "Authorization: Bearer <access_token>"
-```
-
----
-
-## Безопасность
-
-### Защита от брутфорса
-- Максимум 5 попыток ввода email-кода
-- После 5 неудачных попыток код становится недействительным
-- Нужно запросить новый код
-
-### Беспарольная система
-- Пароли НЕ используются
-- Вход только через email-коды
-- Коды одноразовые и короткоживущие
-
-### JWT токены
-- Access token: 30 минут
-- Refresh token: 30 дней
-- Токены подписаны SECRET_KEY
-
-### Одна активная сессия
-- При логине на новом устройстве старая сессия деактивируется
-- Хранится device_id и session_id
-
-### TTL
-- Email-код: 5 минут
-- Access token: 30 минут
-- Refresh token: 30 дней
-
-### Проверка прав
-- Все endpoints защищены (требуют авторизации)
-- Проверка ролей на уровне ViewSet
-- Object-level permissions для владения ресурсами
-- Queryset filtering по ролям
-
----
-
-## Email настройки
-
-В режиме разработки:
-- Код всегда: `4444`
-- Email отправляется через Яндекс SMTP (Dmitry4424@yandex.ru)
-
-**ВАЖНО:** Перед деплоем в продакшен:
-1. Убрать тестовый код `4444`
-2. Настроить production SMTP
-3. Удалить поле `dev_code` из ответов API
-
----
-
-## Дополнительная документация
-
-- [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) - Схема базы данных
-- [README.md](README.md) - Общая информация о проекте
+- [README.md](README.md)
+- [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
+- [DOCKER_SETUP.md](DOCKER_SETUP.md)

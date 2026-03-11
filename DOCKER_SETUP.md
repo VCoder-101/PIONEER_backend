@@ -1,180 +1,149 @@
-# Docker Setup - Pioneer Backend
+﻿# Docker Setup - PIONEER Backend
+
+Текущий Docker setup предназначен для локальной разработки, а не для production.
+
+## Что поднимается
+
+`docker-compose.yml` описывает два сервиса:
+
+- `db` — `postgres:18`, порт хоста `5433 -> 5432`
+- `web` — Django приложение на порту `8000`
+
+Используемые volumes:
+
+- `pioneer_pgdata` — данные PostgreSQL
+- `.:/app` — bind mount исходников внутрь контейнера `web`
 
 ## Быстрый старт
 
-### 1. Запуск проекта
-
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-Это запустит:
-- PostgreSQL на порту 5433
-- Django на порту 8000
+После запуска:
 
-### 2. Доступ к приложению
+- API: `http://127.0.0.1:8000/api/`
+- админка: `http://127.0.0.1:8000/admin/`
+- PostgreSQL с хоста: `127.0.0.1:5433`
 
-- API: http://localhost:8000/api/
-- Админка: http://localhost:8000/admin/
+## Что делает entrypoint
 
-### 3. Вход в админку
+Файл `docker/entrypoint.sh` при старте контейнера:
 
-Email: `admin@pioneer.local`
-Код: `4444` (в dev режиме)
+1. ждёт доступности PostgreSQL;
+2. выполняет `python manage.py migrate --noinput`;
+3. создаёт superuser `admin@pioneer.local`, если он ещё отсутствует;
+4. запускает `python manage.py runserver 0.0.0.0:8000`.
 
-## Конфигурация
+Это означает, что текущий Docker setup:
 
-### Переменные окружения (.env.docker)
+- уже применяет миграции автоматически;
+- ориентирован на разработку;
+- использует `runserver`, а не production WSGI-сервер.
+
+## Переменные окружения
+
+Контейнер `web` читает `.env.docker`.
+
+Минимально важные переменные:
 
 ```env
-# Django
 DEBUG=True
-SECRET_KEY=super-secret-key...
+SECRET_KEY=change-me
 
-# Database
 DB_NAME=pioneer
 DB_USER=postgres
 DB_PASSWORD=postgres
 DB_HOST=db
 DB_PORT=5432
-
-# Email (Яндекс SMTP)
-EMAIL_HOST=smtp.yandex.ru
-EMAIL_PORT=465
-EMAIL_USE_SSL=True
-EMAIL_HOST_USER=Dmitry4424@yandex.ru
-EMAIL_HOST_PASSWORD=mhbjhqtgkugfrwpl
-DEFAULT_FROM_EMAIL=Dmitry4424@yandex.ru
 ```
 
-## Команды
+Дополнительно в `.env.docker` могут быть SMTP-параметры для email-отправки.
 
-### Запуск контейнеров
-```bash
-docker-compose up
-```
+Важно:
 
-### Запуск в фоновом режиме
-```bash
-docker-compose up -d
-```
+- не используйте dev-секреты и dev SMTP credentials как production-конфигурацию;
+- при `DEBUG=True` основные auth send-code endpoints могут возвращать `dev_code`, поэтому для локальной разработки SMTP не всегда обязателен.
 
-### Остановка контейнеров
-```bash
-docker-compose down
-```
+## Полезные команды
 
-### Пересборка образов
-```bash
-docker-compose up --build
-```
-
-### Просмотр логов
-```bash
-docker-compose logs -f web
-docker-compose logs -f db
-```
-
-### Выполнение команд в контейнере
-```bash
-# Django shell
-docker-compose exec web python manage.py shell
-
-# Создать миграции
-docker-compose exec web python manage.py makemigrations
-
-# Применить миграции
-docker-compose exec web python manage.py migrate
-
-# Создать суперпользователя
-docker-compose exec web python manage.py shell
->>> from users.models import User
->>> User.objects.create_superuser('newemail@example.com')
-```
-
-### Доступ к базе данных
-```bash
-# Подключиться к PostgreSQL
-docker-compose exec db psql -U postgres -d pioneer
-
-# Или с хоста
-psql -h localhost -p 5433 -U postgres -d pioneer
-```
-
-## Entrypoint
-
-При запуске контейнера автоматически выполняется:
-
-1. Ожидание готовности базы данных
-2. Применение миграций
-3. Создание суперпользователя (если не существует)
-4. Запуск сервера
-
-## Volumes
-
-- `pioneer_pgdata` - данные PostgreSQL (сохраняются между перезапусками)
-- `.:/app` - код проекта (изменения применяются сразу)
-
-## Порты
-
-- `8000` - Django (web)
-- `5433` - PostgreSQL (db) - маппится на 5433 чтобы не конфликтовать с локальным PostgreSQL
-
-## Troubleshooting
-
-### База данных не готова
-Если видите ошибки подключения к БД, подождите пока PostgreSQL полностью запустится:
-```bash
-docker-compose logs db
-```
-
-### Миграции не применились
-Примените миграции вручную:
-```bash
-docker-compose exec web python manage.py migrate
-```
-
-### Нужно пересоздать базу данных
-```bash
-docker-compose down -v  # Удалит volumes
-docker-compose up --build
-```
-
-### Email не отправляются
-Проверьте настройки в `.env.docker`:
-```bash
-docker-compose exec web python test_yandex_send.py
-```
-
-## Production
-
-Для production окружения:
-
-1. Измените `SECRET_KEY` на случайный
-2. Установите `DEBUG=False`
-3. Настройте `ALLOWED_HOSTS`
-4. Используйте production SMTP
-5. Используйте gunicorn вместо runserver
-6. Настройте nginx для статики
-7. Используйте SSL сертификаты
-
-### Пример production entrypoint:
+### Запуск
 
 ```bash
-#!/bin/sh
-set -e
-
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
-
-gunicorn pioneer_backend.wsgi:application \
-    --bind 0.0.0.0:8000 \
-    --workers 4 \
-    --timeout 120
+docker compose up
+docker compose up -d
+docker compose up --build
 ```
 
-## Полезные ссылки
+### Остановка
 
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [PostgreSQL Docker Image](https://hub.docker.com/_/postgres)
+```bash
+docker compose down
+docker compose down -v
+```
+
+`down -v` удалит volume PostgreSQL и все данные внутри Docker-базы.
+
+### Логи
+
+```bash
+docker compose logs -f web
+docker compose logs -f db
+```
+
+### Django-команды внутри контейнера
+
+```bash
+docker compose exec web python manage.py shell
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py seed_db
+```
+
+Используйте `seed_db`, если нужны тестовые организации, услуги, клиенты и бронирования.
+
+Не используйте `seed_demo` как актуальный сценарий инициализации: эта команда осталась от старой phone/password модели.
+
+### Доступ к базе
+
+```bash
+docker compose exec db psql -U postgres -d pioneer
+```
+
+Или с хоста:
+
+```bash
+psql -h 127.0.0.1 -p 5433 -U postgres -d pioneer
+```
+
+## Вход в админку
+
+Текущая админка использует кастомный email-code login:
+
+- URL: `http://127.0.0.1:8000/admin/login/`
+- пользователь по умолчанию: `admin@pioneer.local`
+
+В dev-режиме:
+
+- send-code flow может вернуть `dev_code` в API;
+- verify логика принимает код `4444`.
+
+## Типичный dev workflow
+
+1. `docker compose up --build`
+2. открыть `http://127.0.0.1:8000/admin/` или `http://127.0.0.1:8000/api/`
+3. при необходимости наполнить базу через `docker compose exec web python manage.py seed_db`
+4. смотреть логи через `docker compose logs -f web`
+
+## Ограничения текущего Docker setup
+
+- это не production-compose;
+- `DEBUG=True` и `runserver` остаются dev-only настройками;
+- нет `nginx`, `gunicorn`, `collectstatic`, HTTPS и отдельного production-контура;
+- secrets и SMTP-конфигурацию нужно выносить из репозитория перед реальным деплоем.
+
+## Связанные документы
+
+- [README.md](README.md)
+- [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+- [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)

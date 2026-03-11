@@ -1,315 +1,212 @@
-# Схема базы данных Pioneer Backend
+﻿# Схема базы данных PIONEER Backend
 
-## ER-диаграмма (текстовая)
+Эта схема описывает фактические модели из текущего кода Django apps `users`, `organizations`, `services`, `bookings`.
 
+## Общие замечания
+
+- `User.id` и `UserSession.id` — `UUIDField`.
+- Для остальных моделей используется стандартный Django `BigAutoField`.
+- `User` наследуется от `AbstractBaseUser` и `PermissionsMixin`, поэтому в физической таблице есть стандартные django-auth поля вроде `password`, `last_login`, `is_superuser` и permission relations.
+- Публичная авторизация по паролю в проекте не используется: `create_user()` выставляет unusable password, а пользовательский auth flow работает через email-коды.
+- Поле `phone` в `User` остаётся в модели как необязательное контактное поле, но не является текущим логином.
+
+## Модели
+
+### `users.User`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | UUID PK | да | идентификатор пользователя |
+| `email` | `EmailField(unique=True, db_index=True)` | да | основной логин |
+| `name` | `CharField(150, null=True, blank=True)` | нет | имя пользователя |
+| `phone` | `CharField(20, null=True, blank=True, db_index=True)` | нет | дополнительный контактный телефон |
+| `role` | `CharField` | да | `ADMIN`, `ORGANIZATION`, `CLIENT` |
+| `is_active` | `BooleanField(db_index=True)` | да | активность учётной записи |
+| `is_staff` | `BooleanField` | да | доступ в staff/admin контур |
+| `privacy_policy_accepted_at` | `DateTimeField(null=True, blank=True)` | нет | время принятия privacy policy |
+| `current_device_id` | `CharField(255, null=True, blank=True)` | нет | текущее устройство |
+| `current_session_id` | `UUIDField(null=True, blank=True)` | нет | текущая активная серверная сессия |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | создание записи |
+| `updated_at` | `DateTimeField(auto_now=True)` | да | последнее обновление |
+| `last_login_at` | `DateTimeField(null=True, blank=True)` | нет | последняя авторизация через email-код |
+
+Индексы из модели:
+
+- `email`
+- `phone`
+- `(role, is_active)`
+- `-created_at`
+- `current_session_id`
+
+### `users.UserSession`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | UUID PK | да | идентификатор сессии |
+| `user` | FK -> `users.User` | да | пользователь |
+| `device_id` | `CharField(255, db_index=True)` | да | идентификатор устройства |
+| `ip_address` | `GenericIPAddressField(null=True, blank=True)` | нет | IP клиента |
+| `user_agent` | `TextField(blank=True)` | нет | User-Agent |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | начало сессии |
+| `expires_at` | `DateTimeField(db_index=True)` | да | срок действия |
+| `is_active` | `BooleanField(db_index=True)` | да | признак активной сессии |
+
+Индексы из модели:
+
+- `(user, is_active)`
+- `device_id`
+- `(expires_at, is_active)`
+
+### `organizations.City`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор города |
+| `name` | `CharField(100, unique=True, db_index=True)` | да | название города |
+| `region` | `CharField(100, blank=True)` | нет | регион |
+| `country` | `CharField(100, default="Россия")` | да | страна |
+| `is_active` | `BooleanField` | да | активность города |
+| `created_at` | `DateTimeField(auto_now_add=True)` | да | дата создания |
+
+Индексы из модели:
+
+- `name`
+- `is_active`
+
+### `organizations.Organization`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор организации |
+| `name` | `CharField(255, db_index=True)` | да | название |
+| `owner` | FK -> `users.User` | да | владелец с ролью `ORGANIZATION` или `ADMIN` |
+| `city` | FK -> `organizations.City` (`SET_NULL`) | нет | город |
+| `address` | `CharField(500, blank=True)` | нет | адрес |
+| `phone` | `CharField(20, blank=True)` | нет | телефон организации |
+| `email` | `EmailField(blank=True)` | нет | контактный email |
+| `description` | `TextField(blank=True)` | нет | описание |
+| `is_active` | `BooleanField` | да | активность организации |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | дата создания |
+
+Индексы из модели:
+
+- `(owner, is_active)`
+- `(city, is_active)`
+- `-created_at`
+
+### `services.Service`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор услуги |
+| `organization` | FK -> `organizations.Organization` | да | организация-владелец услуги |
+| `title` | `CharField(255, db_index=True)` | да | название |
+| `description` | `TextField(blank=True)` | нет | описание |
+| `price` | `DecimalField(10, 2, db_index=True)` | да | базовая цена |
+| `duration` | `IntegerField` | да | длительность в минутах |
+| `is_active` | `BooleanField(db_index=True)` | да | активность услуги |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | дата создания |
+
+Индексы из модели:
+
+- `(organization, is_active)`
+- `(is_active, price)`
+- `-created_at`
+
+### `services.ServiceItem`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор элемента услуги |
+| `service` | FK -> `services.Service` | да | родительская услуга |
+| `name` | `CharField(255)` | да | название элемента |
+| `description` | `TextField(blank=True)` | нет | описание |
+| `price` | `DecimalField(10, 2)` | да | цена элемента |
+| `is_required` | `BooleanField(default=False)` | да | обязательный ли элемент |
+| `is_active` | `BooleanField(default=True)` | да | активность элемента |
+| `order` | `IntegerField(default=0)` | да | порядок сортировки |
+| `created_at` | `DateTimeField(auto_now_add=True)` | да | дата создания |
+
+Индексы из модели:
+
+- `(service, is_active)`
+- `order`
+
+### `bookings.Booking`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор бронирования |
+| `user` | FK -> `users.User` | да | клиент |
+| `service` | FK -> `services.Service` | да | выбранная услуга |
+| `status` | `CharField` | да | `NEW`, `CONFIRMED`, `CANCELLED`, `DONE` |
+| `scheduled_at` | `DateTimeField(db_index=True)` | да | дата и время записи |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | дата создания |
+| `updated_at` | `DateTimeField(auto_now=True)` | да | дата обновления |
+
+Индексы из модели:
+
+- `(user, status)`
+- `(service, status)`
+- `(status, scheduled_at)`
+- `-created_at`
+
+### `bookings.BookingItem`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | BigAuto PK | да | идентификатор элемента бронирования |
+| `booking` | FK -> `bookings.Booking` | да | бронирование |
+| `service_item` | FK -> `services.ServiceItem` | да | выбранный элемент услуги |
+| `quantity` | `PositiveIntegerField(default=1)` | да | количество |
+| `price` | `DecimalField(10, 2)` | да | цена на момент бронирования |
+
+Индексы из модели:
+
+- `booking`
+
+## Связи между сущностями
+
+- один `User` -> много `UserSession`
+- один `User` -> много `Organization` через `owner`
+- один `User` -> много `Booking`
+- один `City` -> много `Organization`
+- одна `Organization` -> много `Service`
+- одна `Service` -> много `ServiceItem`
+- одна `Service` -> много `Booking`
+- один `Booking` -> много `BookingItem`
+- один `ServiceItem` -> много `BookingItem`
+
+## Упрощённая ER-схема
+
+```text
+User (UUID)
+  ├─< UserSession (UUID)
+  ├─< Organization
+  └─< Booking
+
+City
+  └─< Organization
+
+Organization
+  └─< Service
+
+Service
+  ├─< ServiceItem
+  └─< Booking
+
+Booking
+  └─< BookingItem >─ ServiceItem
 ```
-┌─────────────────────┐
-│       User          │
-│─────────────────────│
-│ id (PK)            │◄────┐
-│ email (unique) ⚡   │     │
-│ password           │     │
-│ role ⚡            │     │
-│ is_active ⚡       │     │
-│ created_at ⚡      │     │
-│ last_login         │     │
-└─────────────────────┘     │
-         │                  │
-         │ 1:N              │ 1:N
-         ▼                  │
-┌─────────────────────┐     │
-│   UserSession       │     │
-│─────────────────────│     │
-│ id (PK)            │     │
-│ user_id (FK) ⚡    │─────┘
-│ session_key ⚡     │
-│ ip_address         │
-│ user_agent         │
-│ created_at ⚡      │
-│ expires_at ⚡      │
-│ is_active ⚡       │
-└─────────────────────┘
 
+## Что важно не перепутать
 
-┌─────────────────────┐
-│       City          │
-│─────────────────────│
-│ id (PK)            │◄────┐
-│ name (unique) ⚡    │     │
-│ region             │     │
-│ country            │     │
-│ is_active ⚡       │     │
-│ created_at         │     │
-└─────────────────────┘     │
-                            │ 1:N
-┌─────────────────────┐     │
-│   Organization      │     │
-│─────────────────────│     │
-│ id (PK)            │     │
-│ name ⚡            │     │
-│ owner_id (FK) ⚡   │─────┼──► User
-│ city_id (FK) ⚡    │─────┘
-│ address            │
-│ phone              │
-│ email              │
-│ description        │
-│ is_active ⚡       │
-│ created_at ⚡      │
-└─────────────────────┘
-         │
-         │ 1:N
-         ▼
-┌─────────────────────┐
-│      Service        │
-│─────────────────────│
-│ id (PK)            │◄────┐
-│ organization_id ⚡  │     │
-│ title ⚡           │     │
-│ description        │     │
-│ price ⚡           │     │
-│ duration           │     │
-│ is_active ⚡       │     │
-│ created_at ⚡      │     │
-└─────────────────────┘     │
-         │                  │
-         │ 1:N              │ 1:N
-         ▼                  │
-┌─────────────────────┐     │
-│   ServiceItem       │     │
-│─────────────────────│     │
-│ id (PK)            │     │
-│ service_id (FK) ⚡  │─────┘
-│ name               │
-│ description        │
-│ price              │
-│ is_required        │
-│ is_active ⚡       │
-│ order ⚡           │
-│ created_at         │
-└─────────────────────┘
-         │
-         │ 1:N
-         ▼
-┌─────────────────────┐
-│   BookingItem       │
-│─────────────────────│
-│ id (PK)            │
-│ booking_id (FK) ⚡  │─────┐
-│ service_item_id ⚡  │     │
-│ quantity           │     │
-│ price              │     │
-└─────────────────────┘     │
-                            │
-┌─────────────────────┐     │
-│      Booking        │     │
-│─────────────────────│     │
-│ id (PK)            │◄────┘
-│ user_id (FK) ⚡    │─────► User
-│ service_id (FK) ⚡  │─────► Service
-│ status ⚡          │
-│ scheduled_at ⚡    │
-│ created_at ⚡      │
-│ updated_at         │
-└─────────────────────┘
-```
+- `phone` есть только как необязательное поле профиля и как поле поиска в `BookingViewSet`; текущая аутентификация строится вокруг `email`.
+- отдельной доменной модели для слотов, доступности услуги, транспорта клиента, параметров услуги и заявок на подключение организации в коде пока нет.
+- `BookingItem` существует в БД, но публичный booking API пока не даёт полноценного nested create/update сценария для этих записей.
+- `Organization.city` и `Organization.address` пока не обязательны на уровне модели, хотя product-level требования в будущем могут стать строже.
 
-⚡ - Поле с индексом
+## Связанные документы
 
----
-
-## Связи между таблицами
-
-### User (Пользователи)
-- **1:N** → Organization (владелец организаций)
-- **1:N** → Booking (клиент создает бронирования)
-- **1:N** → UserSession (сессии пользователя)
-
-### City (Города)
-- **1:N** → Organization (город организации)
-
-### Organization (Организации)
-- **N:1** → User (владелец)
-- **N:1** → City (город)
-- **1:N** → Service (услуги организации)
-
-### Service (Услуги)
-- **N:1** → Organization (организация)
-- **1:N** → ServiceItem (элементы услуги)
-- **1:N** → Booking (бронирования услуги)
-
-### ServiceItem (Элементы услуг)
-- **N:1** → Service (услуга)
-- **1:N** → BookingItem (выбранные элементы)
-
-### Booking (Бронирования)
-- **N:1** → User (клиент)
-- **N:1** → Service (услуга)
-- **1:N** → BookingItem (элементы бронирования)
-
-### BookingItem (Элементы бронирования)
-- **N:1** → Booking (бронирование)
-- **N:1** → ServiceItem (элемент услуги)
-
----
-
-## Индексы для оптимизации
-
-### Одиночные индексы (db_index=True)
-
-**User:**
-- email (unique)
-- role
-- is_active
-- created_at
-
-**UserSession:**
-- user_id (FK)
-- session_key (unique)
-- is_active
-- created_at
-- expires_at
-
-**City:**
-- name (unique)
-- is_active
-
-**Organization:**
-- name
-- owner_id (FK)
-- city_id (FK)
-- is_active
-- created_at
-
-**Service:**
-- organization_id (FK)
-- title
-- price
-- is_active
-- created_at
-
-**ServiceItem:**
-- service_id (FK)
-- is_active
-- order
-
-**Booking:**
-- user_id (FK)
-- service_id (FK)
-- status
-- scheduled_at
-- created_at
-
-**BookingItem:**
-- booking_id (FK)
-- service_item_id (FK)
-
-### Составные индексы (Meta.indexes)
-
-**User:**
-1. (email)
-2. (role, is_active)
-3. (-created_at)
-
-**UserSession:**
-1. (user, is_active)
-2. (session_key)
-3. (expires_at, is_active)
-
-**City:**
-1. (name)
-2. (is_active)
-
-**Organization:**
-1. (owner, is_active)
-2. (city, is_active)
-3. (-created_at)
-
-**Service:**
-1. (organization, is_active)
-2. (is_active, price)
-3. (-created_at)
-
-**ServiceItem:**
-1. (service, is_active)
-2. (order)
-
-**Booking:**
-1. (user, status)
-2. (service, status)
-3. (status, scheduled_at)
-4. (-created_at)
-
-**BookingItem:**
-1. (booking)
-
----
-
-## Типичные запросы и их оптимизация
-
-### 1. Получить активные услуги организации
-```sql
-SELECT * FROM services_service 
-WHERE organization_id = ? AND is_active = true
-ORDER BY price;
-```
-**Индекс:** (organization, is_active) + price
-
-### 2. Получить бронирования клиента
-```sql
-SELECT * FROM bookings_booking 
-WHERE user_id = ? AND status = 'NEW'
-ORDER BY scheduled_at;
-```
-**Индекс:** (user, status) + scheduled_at
-
-### 3. Получить активные сессии пользователя
-```sql
-SELECT * FROM users_usersession 
-WHERE user_id = ? AND is_active = true AND expires_at > NOW();
-```
-**Индекс:** (user, is_active) + (expires_at, is_active)
-
-### 4. Поиск организаций по городу
-```sql
-SELECT * FROM organizations_organization 
-WHERE city_id = ? AND is_active = true;
-```
-**Индекс:** (city, is_active)
-
-### 5. Получить элементы услуги
-```sql
-SELECT * FROM services_serviceitem 
-WHERE service_id = ? AND is_active = true
-ORDER BY order;
-```
-**Индекс:** (service, is_active) + order
-
----
-
-## Статистика
-
-- **Таблиц:** 8
-- **Связей (FK):** 11
-- **Одиночных индексов:** 30+
-- **Составных индексов:** 17
-- **Всего индексов:** 47+
-
----
-
-## Размер данных (примерная оценка)
-
-При 1000 пользователей, 100 организаций, 500 услуг:
-
-| Таблица | Записей | Размер (примерно) |
-|---------|---------|-------------------|
-| User | 1,000 | ~100 KB |
-| UserSession | 2,000 | ~200 KB |
-| City | 100 | ~10 KB |
-| Organization | 100 | ~50 KB |
-| Service | 500 | ~200 KB |
-| ServiceItem | 2,000 | ~500 KB |
-| Booking | 5,000 | ~500 KB |
-| BookingItem | 10,000 | ~800 KB |
-| **Итого** | **20,700** | **~2.4 MB** |
-
-*Без учета индексов (индексы добавляют ~30-50% к размеру)*
+- [README.md](README.md)
+- [API_DOCUMENTATION.md](API_DOCUMENTATION.md)

@@ -1,355 +1,204 @@
-# Pioneer Backend
+﻿# PIONEER Backend
 
-Monolith + Domain Apps архитектура для системы бронирования услуг.
+Частично реализованный backend для web-приложения PIONEER на Django + Django REST Framework. Репозиторий уже содержит email-code аутентификацию, базовые CRUD API для организаций, услуг и бронирований, а также dev-конфигурацию для локального запуска и Docker.
 
-## 🎯 О проекте
+Исходной правдой для этого репозитория является текущий код. Эта документация описывает именно фактическое состояние проекта, включая известные ограничения.
 
-Pioneer Backend - это RESTful API для системы бронирования услуг с поддержкой:
-- Управления организациями и их услугами
-- Бронирования услуг клиентами
-- Ролевой модели доступа (ADMIN, OWNER, CLIENT)
-- Элементов услуг (опций и дополнений)
+## Что есть в проекте
 
-## 📋 Требования
+- backend для web-приложения, не mobile-only API;
+- email-only аутентификация без паролей для публичного пользовательского потока;
+- JWT access/refresh токены и серверная модель `UserSession`;
+- доменные apps `users`, `organizations`, `services`, `bookings`;
+- Django Admin с отдельным входом по email-коду;
+- локальный dev setup и Docker Compose для разработки.
 
-- Python 3.12+
-- PostgreSQL 18+
-- pip
+## Основные apps и сущности
 
-## 🚀 Быстрый старт
+### `users`
 
-### 1. Клонирование и установка зависимостей
+- `User`: email как логин, `name`, необязательный `phone`, роли `ADMIN` / `ORGANIZATION` / `CLIENT`, признак принятия privacy policy, текущие `device_id` и `session_id`.
+- `UserSession`: серверная сессия устройства с `device_id`, `ip_address`, `user_agent`, `expires_at`, `is_active`.
+
+### `organizations`
+
+- `City`
+- `Organization`: владелец (`owner -> users.User`), город, адрес, телефон, email, описание, `is_active`.
+
+### `services`
+
+- `Service`: организация, название, описание, цена, длительность, `is_active`.
+- `ServiceItem`: дополнительный элемент услуги, цена, обязательность, порядок сортировки.
+
+### `bookings`
+
+- `Booking`: клиент, услуга, статус (`NEW`, `CONFIRMED`, `CANCELLED`, `DONE`), `scheduled_at`.
+- `BookingItem`: выбранный `ServiceItem`, количество и цена на момент бронирования.
+
+### `api`
+
+- служебный app;
+- management commands `seed_db` и `seed_demo`.
+
+`seed_db` соответствует текущим email/role-моделям заметно лучше. `seed_demo` остаётся legacy-командой со старой phone/password логикой и не должен использоваться как источник актуального контракта.
+
+## Роли
+
+- `ADMIN`: полный доступ, управление пользователями и всеми доменными сущностями.
+- `ORGANIZATION`: владелец организаций, услуг и просмотр бронирований по своим услугам.
+- `CLIENT`: чтение активных организаций и услуг, создание и изменение своих бронирований.
+
+Важно:
+
+- публичная регистрация через API создаёт только пользователей с ролью `CLIENT`;
+- роли `ORGANIZATION` и `ADMIN` появляются вне публичного регистрационного потока: через админку, management-команды или seed-данные.
+
+## Аутентификация
+
+Основной публичный auth flow сейчас такой:
+
+1. `POST /api/users/auth/send-code/`
+2. `POST /api/users/auth/verify-code/`
+3. сохранить `jwt.access`, `jwt.refresh` и `session.id`
+4. использовать `Authorization: Bearer <access_token>` для защищённых API
+5. при выходе вызвать `POST /api/users/auth/logout/` с `session_id`
+
+Особенности текущей реализации:
+
+- авторизация идёт через email-коды, пароли в пользовательском API не используются;
+- тип auth-потока определяется по состоянию пользователя в БД:
+  - нет пользователя -> регистрация;
+  - пользователь есть и `name` заполнено -> логин;
+  - пользователь есть, но `name` пустое -> завершение регистрации;
+- в dev-режиме send-code endpoints могут возвращать `dev_code`, а проверка кода принимает `4444`;
+- в коде остаются legacy/specialized auth routes:
+  - `/api/users/auth/email/register/*`
+  - `/api/users/auth/email/login/*`
+  - `/api/users/auth/recovery/*`
+  - `/api/users/auth/jwt/verify/`
+  - `/api/users/auth/logout/`
+
+Подробности и примеры запросов: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+
+## Основные API-группы
+
+- `/api/users/auth/*` — публичная аутентификация, recovery, logout, JWT verify.
+- `/api/users/` — admin-only user API, плюс `/api/users/me/` для текущего пользователя.
+- `/api/organizations/` — организации.
+- `/api/organizations/cities/` — города.
+- `/api/services/` — услуги.
+- `/api/services/items/` — элементы услуг.
+- `/api/bookings/` — бронирования.
+
+## Локальный запуск
+
+### Требования
+
+- Python 3.12
+- PostgreSQL
+- `pip`
+
+### 1. Установка зависимостей
 
 ```bash
-# Создать виртуальное окружение
 python -m venv venv
-
-# Активировать (Windows)
 venv\Scripts\activate
-
-# Установить зависимости
 pip install -r requirements.txt
 ```
 
-### 2. Настройка базы данных
+### 2. Настройка окружения
 
-Создать базу данных PostgreSQL:
-```sql
-CREATE DATABASE pioneer;
-```
+Проект читает переменные из `.env` через `python-dotenv`. Минимальный пример:
 
-Настроить `.env` файл (уже создан):
 ```env
 DEBUG=True
-SECRET_KEY=super-secret-key
+SECRET_KEY=change-me
+
 DB_NAME=pioneer
 DB_USER=postgres
-DB_PASSWORD=admin123
+DB_PASSWORD=postgres
 DB_HOST=127.0.0.1
 DB_PORT=5432
 ```
 
-### 3. Миграции и запуск
+Замечания:
 
-```bash
-# Применить миграции
-python manage.py migrate
+- в `pioneer_backend/settings.py` есть dev-friendly значения по умолчанию, но лучше задавать их явно;
+- для основного send-code auth flow в `DEBUG=True` SMTP не обязателен, потому что dev-режим может вернуть `dev_code`;
+- recovery flow и production-почта зависят от SMTP-настроек.
 
-# Создать суперпользователя
-python manage.py createsuperuser
+### 3. Подготовка базы
 
-# Запустить сервер
-python manage.py runserver
+```sql
+CREATE DATABASE pioneer;
 ```
 
+### 4. Миграции и запуск
 
-## 🐳 Запуск через Docker (рекомендуется)
-
-### Требования
-- Docker Desktop (Windows/macOS/Linux)
-- Docker Compose (идёт вместе с Docker Desktop)
-
-### 1) Запуск проекта
-В корне проекта выполните:
-```powershell
-docker compose up --build
+```bash
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
 
 После запуска:
-  Админка: http://127.0.0.1:8000/admin/
-  API: http://127.0.0.1:8000/api/
 
+- API: `http://127.0.0.1:8000/api/`
+- админка: `http://127.0.0.1:8000/admin/`
 
-2) Остановка контейнеров
+Важно: Django Admin в этом проекте логинится не паролем, а через отдельный email-code flow на `/admin/login/`.
 
-docker compose down
+## Запуск через Docker
 
-3) Создание суперпользователя (внутри Docker)
+Текущий `docker-compose.yml` — это dev-конфигурация.
 
-Пока контейнеры запущены, в новом терминале выполните: 
+### Быстрый старт
 
+```bash
+docker compose up --build
+```
+
+Что делает текущий `docker/entrypoint.sh`:
+
+1. ждёт готовности PostgreSQL;
+2. применяет миграции;
+3. создаёт superuser `admin@pioneer.local`, если его ещё нет;
+4. запускает `python manage.py runserver 0.0.0.0:8000`.
+
+После старта:
+
+- API: `http://127.0.0.1:8000/api/`
+- админка: `http://127.0.0.1:8000/admin/`
+- PostgreSQL с хоста: `127.0.0.1:5433`
+
+### Полезные команды
+
+```bash
 docker compose exec web python manage.py createsuperuser
-
-4) Демоданные (опционально)
-
-Создаёт 5 клиентов, 5 организаций и 5 организаций (для теста):
-
-docker compose exec web python manage.py seed_demo
-
-5) Полный сброс Docker-БД (ВНИМАНИЕ)
-Удаляет volume с данными Postgres внутри Docker (все данные в Docker-БД будут потеряны):
-
+docker compose exec web python manage.py seed_db
+docker compose logs -f web
+docker compose down
 docker compose down -v
-
-Сервер будет доступен по адресу: http://127.0.0.1:8000/
-
-
-
-## 📚 Документация
-
-- [API Documentation](API_DOCUMENTATION.md) - Полная документация API
-- [Database Schema](DATABASE_SCHEMA.md) - Схема базы данных
-- [TZ Checklist](TZ_CHECKLIST.md) - Чек-лист выполнения ТЗ
-- [Changelog](CHANGELOG.md) - История изменений
-
-## 🏗️ Архитектура
-
-### Доменные приложения
-
-#### 1. Users — Пользователи
-- Аутентификация по email
-- Роли (ADMIN / OWNER / CLIENT)
-- Сессии пользователей
-- Профиль пользователя
-
-#### 2. Organizations — Организации
-- Организации владельцев
-- Города
-- Связь: User (OWNER) → Organization
-
-#### 3. Services — Услуги
-- Услуги организаций
-- Элементы услуг (опции, дополнения)
-- Цена, длительность, описание
-- Связь: Organization → Services → ServiceItems
-
-#### 4. Bookings — Бронирования
-- Бронирования услуг
-- Элементы бронирования
-- Статусы: NEW / CONFIRMED / CANCELLED / DONE
-- Связи: User + Service → Booking → BookingItems
-
-## 🔗 API Endpoints
-
-### Аутентификация
-```
-POST   /api/users/register/     - Регистрация
-GET    /api/users/me/           - Текущий пользователь
 ```
 
-### Пользователи (ADMIN)
-```
-GET    /api/users/              - Список пользователей
-GET    /api/users/{id}/         - Получить пользователя
-```
+Используйте `seed_db`, если нужны тестовые организации, услуги, клиенты и бронирования. Не используйте `seed_demo` как текущий сценарий авторизации: он основан на старой phone/password модели.
 
-### Города
-```
-GET    /api/organizations/cities/     - Список городов
-```
+Подробности: [DOCKER_SETUP.md](DOCKER_SETUP.md)
 
-### Организации
-```
-GET    /api/organizations/            - Список организаций
-POST   /api/organizations/            - Создать организацию
-GET    /api/organizations/{id}/       - Получить организацию
-PUT    /api/organizations/{id}/       - Обновить организацию
-DELETE /api/organizations/{id}/       - Удалить организацию
-```
+## Что важно знать про текущее состояние
 
-### Услуги
-```
-GET    /api/services/                 - Список услуг
-POST   /api/services/                 - Создать услугу
-GET    /api/services/{id}/            - Получить услугу
-PUT    /api/services/{id}/            - Обновить услугу
-DELETE /api/services/{id}/            - Удалить услугу
-```
+- проект уже не пустой, но это всё ещё не production-ready backend;
+- `TIME_ZONE` в настройках сейчас `UTC`;
+- `DEBUG=True`, `ALLOWED_HOSTS=[]` и `CORS_ALLOW_ALL_ORIGINS=True` делают текущую конфигурацию dev-only;
+- `docker-compose.yml` и `Dockerfile` подходят для локальной разработки, а не для production-развёртывания;
+- refresh token выдаётся в auth-ответах, но публичный endpoint вида `/api/token/refresh/` в `pioneer_backend/urls.py` сейчас не подключён;
+- booking flow пока базовый: нет публичного API слотов, проверки конфликтов записи, action-endpoints для статусов и полноценного create-flow для `BookingItem`;
+- write-права вокруг `ServiceItem` пока не доведены до строгой role-based модели;
+- автотесты в основном есть только в `users/tests.py`, а тесты `organizations`, `services`, `bookings` пока пустые.
 
-### Элементы услуг
-```
-GET    /api/services/items/           - Список элементов
-POST   /api/services/items/           - Создать элемент
-GET    /api/services/items/{id}/      - Получить элемент
-PUT    /api/services/items/{id}/      - Обновить элемент
-DELETE /api/services/items/{id}/      - Удалить элемент
-```
+## Документация
 
-### Бронирования
-```
-GET    /api/bookings/                 - Список бронирований
-POST   /api/bookings/                 - Создать бронирование
-GET    /api/bookings/{id}/            - Получить бронирование
-PUT    /api/bookings/{id}/            - Обновить бронирование
-DELETE /api/bookings/{id}/            - Удалить бронирование
-```
-
-## 🔐 Роли и права доступа
-
-### ADMIN
-- Полный доступ ко всем ресурсам
-- Управление пользователями
-- Просмотр всех организаций, услуг и бронирований
-
-### OWNER (Владелец организации)
-- Создание и управление своими организациями
-- Создание и управление услугами своих организаций
-- Просмотр бронирований на услуги своих организаций
-
-### CLIENT (Клиент)
-- Просмотр всех организаций (только чтение)
-- Просмотр активных услуг (только чтение)
-- Создание и управление своими бронированиями
-
-## 🗄️ База данных
-
-### Таблицы
-- **User** - пользователи с ролями
-- **UserSession** - сессии пользователей
-- **City** - города
-- **Organization** - организации
-- **Service** - услуги
-- **ServiceItem** - элементы услуг
-- **Booking** - бронирования
-- **BookingItem** - элементы бронирований
-
-### Индексы
-- 47+ индексов для оптимизации запросов
-- Все внешние ключи индексированы
-- Составные индексы для частых запросов
-
-Подробнее: [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
-
-## 🛠️ Технологии
-
-- **Django 6.0.2** - Web framework
-- **Django REST Framework 3.16.1** - REST API
-- **PostgreSQL 18** - База данных
-- **psycopg2-binary 2.9.11** - PostgreSQL adapter
-- **django-filter 25.2** - Фильтрация API
-- **django-cors-headers 4.9.0** - CORS
-- **python-dotenv 1.2.1** - Переменные окружения
-
-## 📦 Структура проекта
-
-```
-pioneer_backend/
-├── users/                  # Пользователи, роли, сессии
-├── organizations/          # Организации и города
-├── services/              # Услуги и их элементы
-├── bookings/              # Бронирования
-├── pioneer_backend/       # Настройки проекта
-├── .env                   # Переменные окружения
-├── requirements.txt       # Зависимости
-├── manage.py             # Django management
-├── README.md             # Этот файл
-├── API_DOCUMENTATION.md  # Документация API
-├── DATABASE_SCHEMA.md    # Схема БД
-├── TZ_CHECKLIST.md       # Чек-лист ТЗ
-├── CHANGELOG.md          # История изменений
-└── SUMMARY.md            # Сводка работ
-```
-
-## 🧪 Команды разработки
-
-```bash
-# Проверка проекта
-python manage.py check
-
-# Создание миграций
-python manage.py makemigrations
-
-# Применение миграций
-python manage.py migrate
-
-# Создание суперпользователя
-python manage.py createsuperuser
-
-# Запуск сервера
-python manage.py runserver
-
-# Запуск shell
-python manage.py shell
-```
-
-## 📝 Примеры использования
-
-### Регистрация клиента
-```bash
-curl -X POST http://127.0.0.1:8000/api/users/register/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "client@example.com",
-    "password": "password123",
-    "role": "CLIENT"
-  }'
-```
-
-### Создание организации (OWNER)
-```bash
-curl -X POST http://127.0.0.1:8000/api/organizations/ \
-  -H "Content-Type: application/json" \
-  -H "Cookie: sessionid=..." \
-  -d '{
-    "name": "Салон красоты",
-    "city": 1,
-    "address": "ул. Ленина, 1",
-    "phone": "+7 (999) 123-45-67"
-  }'
-```
-
-### Создание бронирования (CLIENT)
-```bash
-curl -X POST http://127.0.0.1:8000/api/bookings/ \
-  -H "Content-Type: application/json" \
-  -H "Cookie: sessionid=..." \
-  -d '{
-    "service": 1,
-    "scheduled_at": "2026-02-20T14:00:00Z",
-    "status": "NEW"
-  }'
-```
-
-## ✅ Выполнение ТЗ
-
-- ✅ Таблица пользователей с необходимыми полями и ограничениями
-- ✅ Таблица сессий пользователей с индексами
-- ✅ Механизм хранения и назначения ролей
-- ✅ Таблица городов со связями
-- ✅ Таблица организаций с полями и связями
-- ✅ Таблица сервисов
-- ✅ Таблица элементов сервисов со связями
-- ✅ Индексы на всех ключевых полях для оптимизации
-
-Подробнее: [TZ_CHECKLIST.md](TZ_CHECKLIST.md)
-
-## 🔮 Будущие улучшения
-
-- [ ] JWT аутентификация
-- [ ] Swagger/OpenAPI документация
-- [ ] Unit и integration тесты
-- [ ] Docker контейнеризация
-- [ ] CI/CD pipeline
-- [ ] WebSockets для real-time уведомлений
-- [ ] Email уведомления
-- [ ] Интеграция платежных систем
-- [ ] Кэширование (Redis)
-- [ ] Логирование и мониторинг
-
-## 📄 Лицензия
-
-Этот проект создан в учебных целях.
-
-## 👥 Контакты
-
-Для вопросов и предложений создавайте issue в репозитории.
-
+- [API_DOCUMENTATION.md](API_DOCUMENTATION.md) — актуальные endpoints, auth flow, payloads и ограничения.
+- [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) — фактические модели и связи.
+- [DOCKER_SETUP.md](DOCKER_SETUP.md) — dev Docker setup.
+- [PLAN.md](PLAN.md) — рабочий план доработки проекта.
