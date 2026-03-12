@@ -7,64 +7,55 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Create demo users and organizations (5 clients, 5 org users, 5 orgs)"
+    help = "Создать демо-пользователей и организации (5 клиентов, 5 владельцев, 5 организаций)"
 
     @transaction.atomic
     def handle(self, *args, **options):
-        # 1) City
+        # 1) Город
         city, _ = City.objects.get_or_create(
             name="Москва",
             defaults={"region": "Московская область", "country": "Россия", "is_active": True},
         )
 
-        # 2) 5 CLIENT users
+        # 2) 5 CLIENT пользователей
         clients = []
         for i in range(1, 6):
-            phone = f"7999000001{i}"  # 79990000011..15
+            email = f"demo_client{i}@pioneer.local"
             user, created = User.objects.get_or_create(
-                phone=phone,
-                defaults={"role": "CLIENT", "is_active": True},
+                email=email,
+                defaults={"name": f"Клиент {i}", "role": "CLIENT", "is_active": True},
             )
-            if created:
-                user.set_password("TestPass123!")
-                user.save()
             clients.append(user)
 
-        # 3) 5 ORGANIZATION users
+        # 3) 5 ORGANIZATION пользователей
         org_users = []
         for i in range(1, 6):
-            phone = f"7999000002{i}"  # 79990000021..25
+            email = f"demo_org{i}@pioneer.local"
             user, created = User.objects.get_or_create(
-                phone=phone,
-                defaults={"role": "ORGANIZATION", "is_active": True},
+                email=email,
+                defaults={"name": f"Владелец {i}", "role": "CLIENT", "is_active": True},
             )
-            if created:
-                user.set_password("TestPass123!")
-                user.save()
             org_users.append(user)
 
-        # 4) 5 Organizations linked to owners
+        # 4) 5 организаций
         orgs = []
         for i, owner in enumerate(org_users, start=1):
             org, created = Organization.objects.get_or_create(
-                name=f"Организация {i}",
+                name=f"Демо Организация {i}",
                 defaults={
                     "owner": owner,
                     "city": city,
                     "address": f"Улица {i}, дом {i}",
-                    "phone": f"+7 999 000 00 {i:02d}",
-                    "email": f"org{i}@pioneer.local",
-                    "description": f"Описание организации {i}",
+                    "email": f"demo_org{i}@pioneer.local",
+                    "description": f"Демо организация {i}",
                     "is_active": True,
                 },
             )
-            # если организация уже была — убедимся, что owner правильный
             if org.owner_id != owner.id:
                 org.owner = owner
                 org.save(update_fields=["owner"])
             orgs.append(org)
 
         self.stdout.write(self.style.SUCCESS("✅ Seed done"))
-        self.stdout.write("CLIENT phones: " + ", ".join([u.phone for u in clients]))
-        self.stdout.write("ORG phones: " + ", ".join([u.phone for u in org_users]))
-        self.stdout.write("Password for all demo users: TestPass123!")
+        self.stdout.write("CLIENT emails: " + ", ".join([u.email for u in clients]))
+        self.stdout.write("ORG emails: " + ", ".join([u.email for u in org_users]))

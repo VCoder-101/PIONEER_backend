@@ -19,7 +19,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsBookingOwnerOrServiceOwner]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'service']
-    search_fields = ['user__phone', 'service__title']
+    search_fields = ['user__email', 'service__title']
     ordering_fields = ['scheduled_at', 'created_at']
     
     def get_queryset(self):

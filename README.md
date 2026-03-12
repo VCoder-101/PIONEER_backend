@@ -17,8 +17,12 @@
 
 ### `users`
 
-- `User`: email как логин, `name`, необязательный `phone`, роли `ADMIN` / `ORGANIZATION` / `CLIENT`, признак принятия privacy policy, текущие `device_id` и `session_id`.
+- `User`: email как логин, `name`, роли `ADMIN` / `CLIENT`, признак принятия privacy policy, текущие `device_id` и `session_id`.
 - `UserSession`: серверная сессия устройства с `device_id`, `ip_address`, `user_agent`, `expires_at`, `is_active`.
+
+### `cars`
+
+- `Car`: автомобиль пользователя (`user -> users.User`), `brand`, `license_plate` (уникальный), `wheel_diameter`.
 
 ### `organizations`
 
@@ -39,8 +43,6 @@
 
 - служебный app;
 - management commands `seed_db` и `seed_demo`.
-
-`seed_db` соответствует текущим email/role-моделям заметно лучше. `seed_demo` остаётся legacy-командой со старой phone/password логикой и не должен использоваться как источник актуального контракта.
 
 ## Роли
 
@@ -84,6 +86,7 @@
 
 - `/api/users/auth/*` — публичная аутентификация, recovery, logout, JWT verify.
 - `/api/users/` — admin-only user API, плюс `/api/users/me/` для текущего пользователя.
+- `/api/cars/` — CRUD машин текущего пользователя.
 - `/api/organizations/` — организации.
 - `/api/organizations/cities/` — города.
 - `/api/services/` — услуги.
@@ -181,7 +184,7 @@ docker compose down
 docker compose down -v
 ```
 
-Используйте `seed_db`, если нужны тестовые организации, услуги, клиенты и бронирования. Не используйте `seed_demo` как текущий сценарий авторизации: он основан на старой phone/password модели.
+Используйте `seed_db`, если нужны тестовые организации, услуги, клиенты и бронирования.
 
 Подробности: [DOCKER_SETUP.md](DOCKER_SETUP.md)
 

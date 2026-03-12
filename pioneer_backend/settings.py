@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "organizations",
     "services",
     "bookings",
+    "cars",
 
 ]
 

@@ -48,14 +48,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name="Имя",
         help_text="Имя пользователя (опционально)"
     )
-    phone = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name='Номер телефона',
-        db_index=True,
-        help_text='Формат: 8 (xxx) xxx xx xx (опционально)'
-    )
     role = models.CharField(
         max_length=20,
         choices=ROLE_CHOICES,
@@ -101,7 +93,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['email']),
-            models.Index(fields=['phone']),
             models.Index(fields=['role', 'is_active']),
             models.Index(fields=['-created_at']),
             models.Index(fields=['current_session_id']),

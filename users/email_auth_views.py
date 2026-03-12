@@ -39,6 +39,14 @@ def _validate_email_or_400(email: str):
     return None
 
 
+def _get_user_cars(user):
+    """Получить список машин пользователя в кратком формате"""
+    from cars.models import Car
+    return list(
+        Car.objects.filter(user=user).values('id', 'brand', 'license_plate', 'wheel_diameter')
+    )
+
+
 def _create_session_and_jwt(user: User, request, device_id: str, message: str, is_new: bool):
     """Единая логика: деактивировать старые сессии, создать новую, выдать JWT"""
     UserSession.objects.filter(user=user, is_active=True).update(is_active=False)
@@ -62,9 +70,10 @@ def _create_session_and_jwt(user: User, request, device_id: str, message: str, i
             "user": {
                 "id": str(user.id),
                 "email": user.email,
-                "name": user.name,  # ✅ новое поле
+                "name": user.name,
                 "role": user.role,
                 "is_new": is_new,
+                "cars": _get_user_cars(user),
             },
             "session": {"id": str(session.id), "expires_at": session.expires_at.isoformat()},
             "jwt": {"access": access, "refresh": str(refresh)},
@@ -549,175 +558,6 @@ def verify_universal_auth_code(request):
         user = User.objects.create_user(email=email, name=name, role="CLIENT")
         user.accept_privacy_policy()
 
-        auth_type = "registration"
-        message = "Регистрация успешна"
-        is_new = True
-
-    return _create_session_and_jwt(
-        user=user,
-        request=request,
-        device_id=device_id,
-        message=message,
-        is_new=is_new,
-    )
-
-# -----------------------------
-# Universal Auth (NEW) - Объединенная авторизация/регистрация
-# -----------------------------
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def send_universal_auth_code(request):
-    """
-    Универсальная отправка кода: автоматически определяет регистрацию или вход.
-    
-    Логика:
-    - Если пользователь не существует -> регистрация (требует privacy_policy_accepted)
-    - Если пользователь существует и name заполнено -> вход
-    - Если пользователь существует но name пустое -> завершение регистрации (требует privacy_policy_accepted)
-
-    Body:
-    {
-        "email": "user@example.com",
-        "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
-    }
-    """
-    email = request.data.get("email", "").strip().lower()
-    privacy_accepted = request.data.get("privacy_policy_accepted", False)
-
-    err = _validate_email_or_400(email)
-    if err:
-        return err
-
-    try:
-        user = User.objects.get(email=email)
-        # Пользователь существует
-        if user.name:
-            # Имя заполнено -> обычный вход
-            auth_type = "login"
-            message = "Код для входа отправлен на email"
-        else:
-            # Имя не заполнено -> завершение регистрации
-            if not privacy_accepted:
-                return Response(
-                    {"error": "Необходимо принять политику конфиденциальности для завершения регистрации"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            auth_type = "complete_registration"
-            message = "Код для завершения регистрации отправлен на email"
-    except User.DoesNotExist:
-        # Пользователь не существует -> регистрация
-        if not privacy_accepted:
-            return Response(
-                {"error": "Необходимо принять политику конфиденциальности для регистрации"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        auth_type = "registration"
-        message = "Код для регистрации отправлен на email"
-
-    result = email_verification_service.send_auth_code(email)
-    if not result.get("success"):
-        return Response(
-            {"error": "Ошибка отправки email. Попробуйте позже."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    data = {
-        "message": message,
-        "email": email,
-        "auth_type": auth_type,  # "registration", "login", "complete_registration"
-    }
-    if "dev_code" in result:
-        data["dev_code"] = result["dev_code"]
-    
-    return Response(data, status=status.HTTP_200_OK)
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def verify_universal_auth_code(request):
-    """
-    Универсальная проверка кода: автоматически выполняет регистрацию или вход.
-    
-    Body:
-    {
-        "email": "user@example.com",
-        "code": "4444",
-        "device_id": "unique-device-identifier",
-        "name": "Имя пользователя",  // обязательно для регистрации/завершения регистрации
-        "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
-    }
-    """
-    email = request.data.get("email", "").strip().lower()
-    code = request.data.get("code", "").strip()
-    device_id = request.data.get("device_id")
-    name = request.data.get("name", "").strip()
-    privacy_accepted = request.data.get("privacy_policy_accepted", False)
-
-    if not all([email, code, device_id]):
-        return Response(
-            {"error": "Необходимы: email, code, device_id"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    err = _validate_email_or_400(email)
-    if err:
-        return err
-
-    # Проверяем код
-    result = email_verification_service.verify_code(email, code, purpose="auth")
-    if not result.get("success"):
-        return Response(
-            {"error": result.get("error"), "attempts_left": result.get("attempts_left")},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    try:
-        user = User.objects.get(email=email)
-        # Пользователь существует
-        if user.name:
-            # Имя заполнено -> обычный вход
-            auth_type = "login"
-            message = "Авторизация успешна"
-            is_new = False
-        else:
-            # Имя не заполнено -> завершение регистрации
-            if not name:
-                return Response(
-                    {"error": "Необходимо указать имя для завершения регистрации"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if not privacy_accepted:
-                return Response(
-                    {"error": "Необходимо принять политику конфиденциальности"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            
-            # Завершаем регистрацию
-            user.name = name
-            user.save(update_fields=['name'])
-            user.accept_privacy_policy()
-            
-            auth_type = "complete_registration"
-            message = "Регистрация завершена успешно"
-            is_new = True
-            
-    except User.DoesNotExist:
-        # Пользователь не существует -> создаем нового
-        if not name:
-            return Response(
-                {"error": "Необходимо указать имя для регистрации"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not privacy_accepted:
-            return Response(
-                {"error": "Необходимо принять политику конфиденциальности"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        
-        # Создаём нового пользователя
-        user = User.objects.create_user(email=email, name=name, role="CLIENT")
-        user.accept_privacy_policy()
-        
         auth_type = "registration"
         message = "Регистрация успешна"
         is_new = True

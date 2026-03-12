@@ -1,6 +1,6 @@
 ﻿# Схема базы данных PIONEER Backend
 
-Эта схема описывает фактические модели из текущего кода Django apps `users`, `organizations`, `services`, `bookings`.
+Эта схема описывает фактические модели из текущего кода Django apps `users`, `cars`, `organizations`, `services`, `bookings`.
 
 ## Общие замечания
 
@@ -8,7 +8,7 @@
 - Для остальных моделей используется стандартный Django `BigAutoField`.
 - `User` наследуется от `AbstractBaseUser` и `PermissionsMixin`, поэтому в физической таблице есть стандартные django-auth поля вроде `password`, `last_login`, `is_superuser` и permission relations.
 - Публичная авторизация по паролю в проекте не используется: `create_user()` выставляет unusable password, а пользовательский auth flow работает через email-коды.
-- Поле `phone` в `User` остаётся в модели как необязательное контактное поле, но не является текущим логином.
+- Поле `phone` удалено из модели `User`. Аутентификация строится вокруг `email`.
 
 ## Модели
 
@@ -19,8 +19,7 @@
 | `id` | UUID PK | да | идентификатор пользователя |
 | `email` | `EmailField(unique=True, db_index=True)` | да | основной логин |
 | `name` | `CharField(150, null=True, blank=True)` | нет | имя пользователя |
-| `phone` | `CharField(20, null=True, blank=True, db_index=True)` | нет | дополнительный контактный телефон |
-| `role` | `CharField` | да | `ADMIN`, `ORGANIZATION`, `CLIENT` |
+| `role` | `CharField` | да | `ADMIN`, `CLIENT` |
 | `is_active` | `BooleanField(db_index=True)` | да | активность учётной записи |
 | `is_staff` | `BooleanField` | да | доступ в staff/admin контур |
 | `privacy_policy_accepted_at` | `DateTimeField(null=True, blank=True)` | нет | время принятия privacy policy |
@@ -33,7 +32,6 @@
 Индексы из модели:
 
 - `email`
-- `phone`
 - `(role, is_active)`
 - `-created_at`
 - `current_session_id`
@@ -56,6 +54,23 @@
 - `(user, is_active)`
 - `device_id`
 - `(expires_at, is_active)`
+
+### `cars.Car`
+
+| Поле | Тип | Обязательность | Назначение |
+| --- | --- | --- | --- |
+| `id` | UUID PK | да | идентификатор автомобиля |
+| `user` | FK -> `users.User` | да | владелец |
+| `brand` | `CharField(100)` | да | марка автомобиля, например Toyota, BMW |
+| `license_plate` | `CharField(20, unique=True, db_index=True)` | да | госномер, уникальный в системе |
+| `wheel_diameter` | `PositiveIntegerField` | да | диаметр диска в дюймах (10–30) |
+| `created_at` | `DateTimeField(auto_now_add=True, db_index=True)` | да | дата создания |
+| `updated_at` | `DateTimeField(auto_now=True)` | да | дата обновления |
+
+Индексы из модели:
+
+- `(user, -created_at)`
+- `license_plate`
 
 ### `organizations.City`
 
@@ -168,6 +183,7 @@
 ## Связи между сущностями
 
 - один `User` -> много `UserSession`
+- один `User` -> много `Car`
 - один `User` -> много `Organization` через `owner`
 - один `User` -> много `Booking`
 - один `City` -> много `Organization`
@@ -182,6 +198,7 @@
 ```text
 User (UUID)
   ├─< UserSession (UUID)
+  ├─< Car (UUID)
   ├─< Organization
   └─< Booking
 
@@ -201,8 +218,8 @@ Booking
 
 ## Что важно не перепутать
 
-- `phone` есть только как необязательное поле профиля и как поле поиска в `BookingViewSet`; текущая аутентификация строится вокруг `email`.
-- отдельной доменной модели для слотов, доступности услуги, транспорта клиента, параметров услуги и заявок на подключение организации в коде пока нет.
+- поля `phone` в `User` нет: аутентификация строится вокруг `email`; `phone` есть только у `Organization` как контактный номер организации.
+- отдельной доменной модели для слотов, доступности услуги, параметров услуги и заявок на подключение организации в коде пока нет.
 - `BookingItem` существует в БД, но публичный booking API пока не даёт полноценного nested create/update сценария для этих записей.
 - `Organization.city` и `Organization.address` пока не обязательны на уровне модели, хотя product-level требования в будущем могут стать строже.
 

@@ -5,15 +5,15 @@ from .models import User, UserSession
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ['email', 'phone', 'role', 'is_active', 'is_staff', 'created_at', 'last_login_at']
+    list_display = ['email', 'name', 'role', 'is_active', 'is_staff', 'created_at', 'last_login_at']
     list_filter = ['role', 'is_active', 'is_staff']
-    search_fields = ['email', 'phone']
+    search_fields = ['email', 'name']
     ordering = ['-created_at']
     
     # Убираем password из всех форм
     fieldsets = (
         (None, {'fields': ('email',)}),
-        ('Личная информация', {'fields': ('phone',)}),
+        ('Личная информация', {'fields': ('name',)}),
         ('Права доступа', {'fields': ('role', 'is_active', 'is_staff', 'is_superuser')}),
         ('Сессия', {'fields': ('current_device_id', 'current_session_id')}),
         ('Политика', {'fields': ('privacy_policy_accepted_at',)}),

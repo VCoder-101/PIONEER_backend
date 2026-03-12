@@ -142,7 +142,8 @@ Content-Type: application/json
     "email": "user@example.com",
     "name": "Иван Иванов",
     "role": "CLIENT",
-    "is_new": true
+    "is_new": true,
+    "cars": []
   },
   "session": {
     "id": "de3ad2ad-d5d6-48c0-8f55-8ff0ad88cd2f",
@@ -309,7 +310,15 @@ Authorization: Bearer <access_token>
   "is_active": true,
   "privacy_policy_accepted_at": "2026-03-11T09:00:00Z",
   "created_at": "2026-03-11T09:00:00Z",
-  "last_login_at": "2026-03-11T09:05:00Z"
+  "last_login_at": "2026-03-11T09:05:00Z",
+  "cars": [
+    {
+      "id": "bf76ba6e-367f-44d4-82dc-173b699c84f4",
+      "brand": "Toyota",
+      "license_plate": "A123BC77",
+      "wheel_diameter": 16
+    }
+  ]
 }
 ```
 
@@ -705,6 +714,96 @@ Content-Type: application/json
 }
 ```
 
+## Cars API
+
+Гараж пользователя — список автомобилей, привязанных к аккаунту.
+
+### Доступ
+
+- `CLIENT` — видит и управляет только своими машинами.
+- `ADMIN` — видит все машины в системе.
+
+### Список машин
+
+```http
+GET /api/cars/
+Authorization: Bearer <access_token>
+```
+
+Ответ:
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": "bf76ba6e-367f-44d4-82dc-173b699c84f4",
+      "owner_email": "user@example.com",
+      "brand": "Toyota",
+      "license_plate": "A123BC77",
+      "wheel_diameter": 16,
+      "created_at": "2026-03-12T06:51:41.844816Z",
+      "updated_at": "2026-03-12T06:51:41.844829Z"
+    }
+  ]
+}
+```
+
+### Добавить машину
+
+```http
+POST /api/cars/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "brand": "Toyota",
+  "license_plate": "A123BC77",
+  "wheel_diameter": 16
+}
+```
+
+Поля:
+
+- `brand` — марка, строка (обязательно).
+- `license_plate` — госномер, уникальный в системе (обязательно). Автоматически приводится к верхнему регистру.
+- `wheel_diameter` — диаметр диска в дюймах, целое число от 10 до 30 (обязательно).
+
+Ответ `201`:
+
+```json
+{
+  "id": "bf76ba6e-367f-44d4-82dc-173b699c84f4",
+  "owner_email": "user@example.com",
+  "brand": "Toyota",
+  "license_plate": "A123BC77",
+  "wheel_diameter": 16,
+  "created_at": "2026-03-12T06:51:41.844816Z",
+  "updated_at": "2026-03-12T06:51:41.844829Z"
+}
+```
+
+Типичные ошибки:
+
+- `400` — госномер уже занят другим пользователем.
+- `400` — `wheel_diameter` вне диапазона 10–30.
+
+### Детали / редактировать / удалить
+
+```http
+GET    /api/cars/{id}/
+PUT    /api/cars/{id}/
+PATCH  /api/cars/{id}/
+DELETE /api/cars/{id}/
+Authorization: Bearer <access_token>
+```
+
+- `PUT/PATCH` принимает те же поля, что `POST`. Все поля необязательны для `PATCH`.
+- `DELETE` возвращает `204 No Content`.
+- Чужая машина возвращает `404`.
+
 ## Bookings API
 
 ### Доступ
@@ -727,7 +826,7 @@ Authorization: Bearer <access_token>
 
 Поиск:
 
-- `user__phone` - по телефону клиента
+- `user__email` - по email клиента
 - `service__title` - по названию услуги
 
 Сортировка:
@@ -861,6 +960,19 @@ API поддерживает два формата ответа:
 - конфигурация `settings.py`, Dockerfile и Compose-файл ориентированы на разработку, а не на production.
 
 ## Изменения в последней версии
+
+### Гараж (Cars)
+- ✅ Новое приложение `cars` с моделью `Car` (UUID PK)
+- ✅ CRUD API `/api/cars/`: список, добавить, детали, редактировать, удалить
+- ✅ Поле `cars` добавлено в ответы аутентификации (login/register) и в `/api/users/me/`
+- ✅ Госномер уникален в рамках системы, автоматически приводится к верхнему регистру
+- ✅ Валидация диаметра диска: 10–30 дюймов
+
+### Пользователи
+- ✅ Удалено поле `phone` из модели `User`, API и всех ответов
+- ✅ Поиск в бронированиях переведён с `user__phone` на `user__email`
+- ✅ Исправлен сломанный `UserSessionSerializer` (удалён как мёртвый код)
+- ✅ Удалены дублированные функции в `email_auth_views.py`
 
 ### Организации
 - ✅ Добавлена система заявок на подключение к агрегатору
