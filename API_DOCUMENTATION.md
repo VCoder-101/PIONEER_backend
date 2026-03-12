@@ -834,6 +834,45 @@ Authorization: Bearer <access_token>
 - `scheduled_at` - по времени записи
 - `created_at` - по дате создания
 
+### Календарный формат (invoices)
+
+```http
+GET /api/bookings/calendar/
+Authorization: Bearer <access_token>
+```
+
+Возвращает бронирования в упрощенном формате для календаря:
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 0,
+      "customerName": "Иван Петров",
+      "dateTime": "10/01/2026 10:30",
+      "carModel": "Lada Vesta",
+      "serviceMethod": "Комплекс",
+      "duration": "60",
+      "price": "600.00"
+    },
+    {
+      "id": 1,
+      "customerName": "Иван Петров",
+      "dateTime": "10/01/2026 11:30",
+      "carModel": "Lada Granta",
+      "serviceMethod": "Экспресс",
+      "duration": "30",
+      "price": "400.00"
+    }
+  ]
+}
+```
+
+Поддерживает те же фильтры и сортировку, что и основной список.
+
 ### Создать бронирование
 
 ```http
@@ -860,6 +899,70 @@ Content-Type: application/json
 - `status` можно передать сразу, если он соответствует choices модели;
 - API пока не создаёт `BookingItem` через booking payload;
 - нет проверки слотов, конфликтов времени и строгих переходов статусов.
+
+### Отменить бронирование
+
+```http
+POST /api/bookings/{id}/cancel/
+Authorization: Bearer <access_token>
+```
+
+Отменяет бронирование, устанавливая статус в `CANCELLED`.
+
+**Права доступа:**
+- Клиент может отменить своё бронирование
+- Владелец организации может отменить любое бронирование на услуги своей организации
+- Администратор может отменить любое бронирование
+
+**Ограничения:**
+- Нельзя отменить уже отмененное бронирование (статус `CANCELLED`)
+- Нельзя отменить завершенное бронирование (статус `DONE`)
+
+Ответ при успешной отмене:
+
+```json
+{
+  "message": "Бронирование успешно отменено",
+  "cancelled_by": "client",
+  "old_status": "NEW",
+  "booking": {
+    "id": 42,
+    "customerName": "Иван Петров",
+    "dateTime": "20/03/2026 10:00",
+    "carModel": "Lada Vesta",
+    "serviceMethod": "Мойка",
+    "duration": "60",
+    "price": "500.00",
+    "wheelDiameter": 16,
+    "status": "CANCELLED",
+    ...
+  }
+}
+```
+
+Поле `cancelled_by` может быть:
+- `client` - отменено клиентом
+- `organization` - отменено организацией
+- `admin` - отменено администратором
+
+Ошибки:
+
+```json
+// 403 - нет прав
+{
+  "error": "У вас нет прав на отмену этого бронирования"
+}
+
+// 400 - уже отменено
+{
+  "error": "Бронирование уже отменено"
+}
+
+// 400 - завершено
+{
+  "error": "Нельзя отменить завершенное бронирование"
+}
+```
 
 ### Формат ответа
 
@@ -993,6 +1096,9 @@ API поддерживает два формата ответа:
 - ✅ Исправлена логика отображения для владельцев организаций
 - ✅ Исправлена проблема с refresh token endpoint
 - ✅ Обновленные права доступа без привязки к роли `ORGANIZATION`
+- ✅ Специальный endpoint для отмены бронирований `POST /api/bookings/{id}/cancel/`
+- ✅ Календарный формат данных `GET /api/bookings/calendar/`
+- ✅ Логика отмены с проверкой прав (клиент/организация/администратор)
 
 ### Аутентификация и токены
 - ✅ Добавлен публичный refresh endpoint `/api/token/refresh/`
@@ -1096,3 +1202,84 @@ Authorization: Bearer <owner_token>
 ```
 
 Владелец увидит все бронирования на услуги своих организаций плюс свои собственные бронирования как клиент.
+
+### Сценарий 5: Календарь бронирований для организации
+
+```http
+GET /api/bookings/calendar/?status=NEW,CONFIRMED&ordering=scheduled_at
+Authorization: Bearer <owner_token>
+```
+
+Ответ в формате invoices:
+
+```json
+{
+  "count": 2,
+  "results": [
+    {
+      "id": 10,
+      "customerName": "Иван Петров",
+      "dateTime": "25/03/2026 14:00",
+      "carModel": "BMW X5",
+      "serviceMethod": "Комплексная мойка",
+      "duration": "45",
+      "price": "800.00"
+    },
+    {
+      "id": 11,
+      "customerName": "Мария Сидорова",
+      "dateTime": "25/03/2026 15:00",
+      "carModel": "Toyota Camry",
+      "serviceMethod": "Экспресс мойка",
+      "duration": "30",
+      "price": "500.00"
+    }
+  ]
+}
+```
+
+### Сценарий 6: Отмена бронирования клиентом
+
+```http
+POST /api/bookings/10/cancel/
+Authorization: Bearer <client_token>
+```
+
+Ответ:
+
+```json
+{
+  "message": "Бронирование успешно отменено",
+  "cancelled_by": "client",
+  "old_status": "NEW",
+  "booking": {
+    "id": 10,
+    "status": "CANCELLED",
+    "customerName": "Иван Петров",
+    "dateTime": "25/03/2026 14:00",
+    ...
+  }
+}
+```
+
+### Сценарий 7: Отмена бронирования организацией
+
+```http
+POST /api/bookings/11/cancel/
+Authorization: Bearer <owner_token>
+```
+
+Организация может отменить любое бронирование на свои услуги:
+
+```json
+{
+  "message": "Бронирование успешно отменено",
+  "cancelled_by": "organization",
+  "old_status": "CONFIRMED",
+  "booking": {
+    "id": 11,
+    "status": "CANCELLED",
+    ...
+  }
+}
+```
