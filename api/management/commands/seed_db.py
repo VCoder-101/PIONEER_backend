@@ -222,8 +222,13 @@ class Command(BaseCommand):
                     "email": data["email"],
                     "description": data["description"],
                     "is_active": True,
+                    "organization_status": "approved",
                 },
             )
+            # Одобряем уже существующие организации (get_or_create не обновляет defaults)
+            if org.organization_status != "approved":
+                org.organization_status = "approved"
+                org.save(update_fields=["organization_status", "organization_date_approved"])
             status = "создана" if org_created else "уже существует"
             self.stdout.write(f"  Организация «{org.name}» — {status}")
             orgs.append(org)
