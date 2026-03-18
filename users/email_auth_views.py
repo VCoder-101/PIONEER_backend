@@ -39,6 +39,46 @@ def _validate_email_or_400(email: str):
     return None
 
 
+def _handle_send_code_result(result):
+    """
+    Обрабатывает результат отправки кода и возвращает Response с правильным статусом.
+    
+    Args:
+        result: dict от email_verification_service.send_auth_code() или send_recovery_code()
+    
+    Returns:
+        Response или None (если успешно)
+    """
+    if result.get("success"):
+        return None
+    
+    # Проверяем причину ошибки
+    if "time_left" in result:
+        # Rate limiting - слишком частые запросы
+        return Response(
+            {
+                "error": result.get("error"),
+                "time_left": result.get("time_left")
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    elif "blocked_time" in result:
+        # Email заблокирован после превышения попыток
+        return Response(
+            {
+                "error": result.get("error"),
+                "blocked_time": result.get("blocked_time")
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    else:
+        # Реальная ошибка отправки email
+        return Response(
+            {"error": "Ошибка отправки email. Попробуйте позже."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
 def _get_user_cars(user):
     """Получить список машин пользователя в кратком формате"""
     from cars.models import Car
@@ -62,7 +102,11 @@ def _create_session_and_jwt(user: User, request, device_id: str, message: str, i
     user.update_session(device_id, session.id)
 
     refresh = RefreshToken.for_user(user)
-    access = str(refresh.access_token)
+    # Добавляем session_id в payload токена для отслеживания
+    refresh['session_id'] = str(session.id)
+    access = refresh.access_token
+    access['session_id'] = str(session.id)
+    access = str(access)
 
     return Response(
         {
@@ -121,11 +165,9 @@ def send_register_email_code(request):
         )
 
     result = email_verification_service.send_auth_code(email)
-    if not result.get("success"):
-        return Response(
-            {"error": "Ошибка отправки email. Попробуйте позже."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+    error_response = _handle_send_code_result(result)
+    if error_response:
+        return error_response
 
     data = {"message": "Код отправлен на email", "email": email}
     if "dev_code" in result:
@@ -223,11 +265,9 @@ def send_email_auth_code(request):
         return Response({"error": "Пользователь не найден"}, status=status.HTTP_400_BAD_REQUEST)
 
     result = email_verification_service.send_auth_code(email)
-    if not result.get("success"):
-        return Response(
-            {"error": "Ошибка отправки email. Попробуйте позже."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+    error_response = _handle_send_code_result(result)
+    if error_response:
+        return error_response
 
     data = {"message": "Код отправлен на email", "email": email}
     if "dev_code" in result:
@@ -314,11 +354,9 @@ def send_email_recovery_code(request):
         )
 
     result = email_verification_service.send_recovery_code(email)
-    if not result.get("success"):
-        return Response(
-            {"error": "Ошибка отправки email. Попробуйте позже."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+    error_response = _handle_send_code_result(result)
+    if error_response:
+        return error_response
 
     data = {"message": "Код восстановления отправлен на email", "email": email}
     if "dev_code" in result:
@@ -455,11 +493,9 @@ def send_universal_auth_code(request):
         message = "Код для регистрации отправлен на email"
 
     result = email_verification_service.send_auth_code(email)
-    if not result.get("success"):
-        return Response(
-            {"error": "Ошибка отправки email. Попробуйте позже."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+    error_response = _handle_send_code_result(result)
+    if error_response:
+        return error_response
 
     data = {
         "message": message,

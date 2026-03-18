@@ -4,6 +4,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import AccessToken
 from django.contrib.auth import get_user_model
+from .models import UserSession
 
 User = get_user_model()
 
@@ -32,6 +33,23 @@ def verify_jwt_token(request):
                 {"valid": False, "error": "user_id not found in token"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        # Проверяем session_id в токене
+        session_id = token.get("session_id")
+        if session_id:
+            # Проверяем, что сессия активна
+            try:
+                session = UserSession.objects.get(id=session_id, user_id=user_id)
+                if not session.is_active:
+                    return Response(
+                        {"valid": False, "error": "Token is expired"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+            except UserSession.DoesNotExist:
+                return Response(
+                    {"valid": False, "error": "Token is expired"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
 
         user = User.objects.get(id=user_id)
 

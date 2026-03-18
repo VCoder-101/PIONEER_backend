@@ -94,6 +94,45 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             'organization': serializer.data
         })
     
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def cancel(self, request, pk=None):
+        """
+        Отменить заявку на регистрацию организации (только для владельца).
+        Доступно только для заявок со статусом 'pending'.
+        """
+        organization = self.get_object()
+        
+        # Проверка прав: только владелец или админ
+        if organization.owner != request.user and request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'У вас нет прав на отмену этой заявки'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Проверка статуса: можно отменить только заявки на рассмотрении
+        if organization.organization_status != 'pending':
+            return Response(
+                {
+                    'error': f'Нельзя отменить заявку со статусом "{organization.get_organization_status_display()}". '
+                            'Отменить можно только заявки на рассмотрении.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Отменяем заявку (меняем статус на rejected)
+        old_status = organization.organization_status
+        organization.organization_status = 'rejected'
+        organization.organization_date_approved = None
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        
+        return Response({
+            'message': 'Заявка на регистрацию организации успешно отменена',
+            'old_status': old_status,
+            'organization': serializer.data
+        }, status=status.HTTP_200_OK)
+    
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def pending(self, request):
         """Получить все заявки на рассмотрении (только для администраторов)"""

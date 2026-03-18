@@ -100,6 +100,98 @@ class BookingViewSet(viewsets.ModelViewSet):
             'booking': serializer.data
         }, status=status.HTTP_200_OK)
     
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def confirm(self, request, pk=None):
+        """
+        Подтвердить бронирование.
+        Доступно владельцу организации (брони на свои услуги) и администратору.
+        """
+        booking = self.get_object()
+        
+        # Проверка прав на подтверждение
+        can_confirm = False
+        confirmed_by = None
+        
+        if request.user.role == 'ADMIN':
+            can_confirm = True
+            confirmed_by = 'admin'
+        elif booking.service.organization.owner == request.user:
+            can_confirm = True
+            confirmed_by = 'organization'
+        
+        if not can_confirm:
+            return Response(
+                {'error': 'У вас нет прав на подтверждение этого бронирования'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Проверка статуса - можно подтвердить только NEW
+        if booking.status != 'NEW':
+            return Response(
+                {'error': f'Нельзя подтвердить бронирование со статусом {booking.status}. Подтверждать можно только новые бронирования (NEW).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Подтверждаем бронирование
+        old_status = booking.status
+        booking.status = 'CONFIRMED'
+        booking.save()
+        
+        serializer = self.get_serializer(booking)
+        
+        return Response({
+            'message': 'Бронирование успешно подтверждено',
+            'confirmed_by': confirmed_by,
+            'old_status': old_status,
+            'booking': serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def complete(self, request, pk=None):
+        """
+        Завершить бронирование (отметить как выполненное).
+        Доступно владельцу организации (брони на свои услуги) и администратору.
+        """
+        booking = self.get_object()
+        
+        # Проверка прав на завершение
+        can_complete = False
+        completed_by = None
+        
+        if request.user.role == 'ADMIN':
+            can_complete = True
+            completed_by = 'admin'
+        elif booking.service.organization.owner == request.user:
+            can_complete = True
+            completed_by = 'organization'
+        
+        if not can_complete:
+            return Response(
+                {'error': 'У вас нет прав на завершение этого бронирования'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Проверка статуса - можно завершить только CONFIRMED
+        if booking.status != 'CONFIRMED':
+            return Response(
+                {'error': f'Нельзя завершить бронирование со статусом {booking.status}. Завершать можно только подтвержденные бронирования (CONFIRMED).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Завершаем бронирование
+        old_status = booking.status
+        booking.status = 'DONE'
+        booking.save()
+        
+        serializer = self.get_serializer(booking)
+        
+        return Response({
+            'message': 'Бронирование успешно завершено',
+            'completed_by': completed_by,
+            'old_status': old_status,
+            'booking': serializer.data
+        }, status=status.HTTP_200_OK)
+    
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def calendar(self, request):
         """

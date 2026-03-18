@@ -1,5 +1,30 @@
 ﻿# API Documentation - PIONEER Backend
 
+## Последние обновления (Март 2026)
+
+### Исправленные баги
+
+- **БАГ-001:** Инвалидация access токенов при обновлении - старые токены теперь немедленно инвалидируются
+- **БАГ-002:** CLIENT теперь может создавать организации
+- **БАГ-003:** Поле `user` в бронированиях устанавливается автоматически, поддержка camelCase
+- **БАГ-004:** Rate limiting теперь возвращает 429 вместо 500
+- **БАГ-005:** Поле `status` всегда возвращается в бронированиях
+- **БАГ-006:** Добавлены поля `countServices` и `summaryPrice` в организации
+- **БАГ-007:** Исправлена обработка URL без trailing slash
+- **БАГ-008:** Владельцы организаций могут редактировать свои услуги
+- **БАГ-009:** Добавлена проверка уникальности названия организации
+- **БАГ-010:** Услуги можно создавать только для одобренных организаций
+- **БАГ-011:** Календарь возвращает поле `bookingStatus` (active/archived)
+
+### Новые endpoints
+
+- `POST /api/bookings/{id}/confirm/` - подтверждение бронирования (организация/админ)
+- `POST /api/bookings/{id}/complete/` - завершение бронирования (организация/админ)
+
+### Breaking Changes
+
+- **БАГ-001:** `/api/token/refresh/` теперь требует обязательное поле `device_id`
+
 ## Базовый URL
 
 ```text
@@ -267,28 +292,41 @@ Content-Type: application/json
 
 ### 8. Refresh token
 
+**ВАЖНО:** После исправления БАГ-001, refresh token теперь инвалидирует старый access token.
+
 ```http
 POST /api/token/refresh/
 Content-Type: application/json
 
 {
-  "refresh": "eyJ..."
+  "refresh": "eyJ...",
+  "device_id": "unique-device-identifier"
 }
 ```
+
+**Обязательные поля:**
+- `refresh` - refresh token из предыдущего ответа
+- `device_id` - уникальный идентификатор устройства (ОБЯЗАТЕЛЬНО)
 
 Ответ:
 
 ```json
 {
-  "access": "eyJ..."
+  "access": "eyJ...",
+  "refresh": "eyJ..."
 }
 ```
 
 Важно:
 - Refresh endpoint НЕ требует Bearer токена в заголовке
-- Отправляется только refresh token в теле запроса
-- Возвращается новый access token
+- Отправляется refresh token и device_id в теле запроса
+- Возвращается новый access token и новый refresh token
+- **БАГ-001 FIX:** При обновлении токена старая сессия деактивируется
+- **БАГ-001 FIX:** Старый access token становится невалидным немедленно
+- **БАГ-001 FIX:** В JWT payload добавлен `session_id` для отслеживания активных сессий
 - Refresh token остается действительным до истечения срока (30 дней)
+
+**Breaking change:** Поле `device_id` теперь ОБЯЗАТЕЛЬНО. Обновите клиентский код.
 
 ## Users API
 
@@ -419,6 +457,10 @@ Authorization: Bearer <access_token>
 
 ### Создать заявку на подключение организации
 
+**БАГ-002 FIX:** Теперь CLIENT может создавать организации. Исправлена проверка прав.
+
+**БАГ-009 FIX:** Добавлена проверка уникальности названия организации.
+
 ```http
 POST /api/organizations/
 Authorization: Bearer <access_token>
@@ -452,6 +494,8 @@ Content-Type: application/json
 
 - `perform_create()` принудительно проставляет `owner = request.user`;
 - `organization_status` автоматически устанавливается в "pending";
+- `organizationStatus` и `owner` - read-only поля (БАГ-002);
+- **БАГ-009:** Проверяется уникальность названия (case-insensitive);
 - при создании через API нельзя надёжно назначить произвольного owner.
 
 Ответ:
@@ -481,6 +525,11 @@ Content-Type: application/json
   "summaryPrice": "0.00"
 }
 ```
+
+**БАГ-006 FIX:** Поля `countServices` и `summaryPrice` теперь возвращаются в ответе.
+
+Возможные ошибки:
+- `400` - Организация с таким названием уже существует (БАГ-009)
 
 ### Управление заявками (только для администраторов)
 
@@ -567,10 +616,12 @@ Authorization: Bearer <access_token>
 
 ### Services
 
+**БАГ-010 FIX:** Пользователи могут создавать услуги только для одобренных организаций (status='approved').
+
 Доступ:
 
 - `ADMIN` — все услуги;
-- Владельцы организаций — услуги своих организаций;
+- Владельцы организаций — услуги своих одобренных организаций (БАГ-010);
 - `CLIENT` — только активные услуги со статусом 'active' и только чтение.
 
 ### Система видимости услуг
@@ -607,6 +658,8 @@ Authorization: Bearer <access_token>
 
 Создание:
 
+**БАГ-010 FIX:** Создание услуги доступно только для одобренных организаций.
+
 ```http
 POST /api/services/
 Authorization: Bearer <access_token>
@@ -622,6 +675,15 @@ Content-Type: application/json
   "is_active": true
 }
 ```
+
+Важно:
+- Пользователь должен быть владельцем организации
+- Организация должна иметь статус 'approved' (БАГ-010)
+- Если организация не одобрена, вернется 403 Forbidden
+
+Возможные ошибки:
+- `403` - Нет прав или организация не одобрена (БАГ-010)
+- `400` - Некорректные данные
 
 **Новые поля:**
 - `status` - статус видимости ("active" или "ghost")
@@ -841,6 +903,8 @@ GET /api/bookings/calendar/
 Authorization: Bearer <access_token>
 ```
 
+**БАГ-011 FIX:** Теперь возвращает поле `bookingStatus` (active/archived).
+
 Возвращает бронирования в упрощенном формате для календаря:
 
 ```json
@@ -850,30 +914,42 @@ Authorization: Bearer <access_token>
   "previous": null,
   "results": [
     {
-      "id": 0,
+      "id": 10,
       "customerName": "Иван Петров",
-      "dateTime": "10/01/2026 10:30",
-      "carModel": "Lada Vesta",
-      "serviceMethod": "Комплекс",
+      "dateTime": "25/03/2026 10:00",
+      "carModel": "BMW X5",
+      "serviceMethod": "Комплексная мойка",
       "duration": "60",
-      "price": "600.00"
+      "price": "1000.00",
+      "status": "NEW",
+      "bookingStatus": "active"
     },
     {
-      "id": 1,
-      "customerName": "Иван Петров",
-      "dateTime": "10/01/2026 11:30",
-      "carModel": "Lada Granta",
-      "serviceMethod": "Экспресс",
+      "id": 11,
+      "customerName": "Мария Сидорова",
+      "dateTime": "25/03/2026 15:00",
+      "carModel": "Toyota Camry",
+      "serviceMethod": "Экспресс мойка",
       "duration": "30",
-      "price": "400.00"
+      "price": "500.00",
+      "status": "CANCELLED",
+      "bookingStatus": "archived"
     }
   ]
 }
 ```
 
+**БАГ-011 FIX:** Добавлено поле `bookingStatus`:
+- `active` - NEW, CONFIRMED (активные бронирования)
+- `archived` - CANCELLED, DONE (завершенные/отмененные)
+
+**БАГ-005 FIX:** Поле `status` теперь всегда возвращается в ответе.
+
 Поддерживает те же фильтры и сортировку, что и основной список.
 
 ### Создать бронирование
+
+**БАГ-003 FIX:** Поле `user` устанавливается автоматически, поддержка camelCase и snake_case.
 
 ```http
 POST /api/bookings/
@@ -890,8 +966,13 @@ Content-Type: application/json
 ```
 
 **Новые поля:**
-- `carModel` - модель автомобиля
-- `wheelDiameter` - диаметр диска
+- `carModel` - модель автомобиля (опционально, БАГ-003)
+- `wheelDiameter` - диаметр диска (опционально, БАГ-003)
+
+**БАГ-003 FIX:** Важные изменения:
+- Поле `user` НЕ требуется в запросе (устанавливается автоматически)
+- Поля `dateTime` и `carModel` опциональны
+- Поддерживается как camelCase (`dateTime`, `carModel`, `wheelDiameter`), так и snake_case (`scheduled_at`, `car_model`, `wheel_diameter`)
 
 Особенности текущей реализации:
 
@@ -900,7 +981,70 @@ Content-Type: application/json
 - API пока не создаёт `BookingItem` через booking payload;
 - нет проверки слотов, конфликтов времени и строгих переходов статусов.
 
-### Отменить бронирование
+### Управление статусами бронирований
+
+Есть два способа изменения статуса бронирования:
+
+1. **Специализированные endpoints** (рекомендуется) - с валидацией переходов
+2. **Стандартный PATCH** - прямое изменение статуса
+
+#### Способ 1: Специализированные endpoints (рекомендуется)
+
+##### Подтвердить бронирование
+
+```http
+POST /api/bookings/{id}/confirm/
+Authorization: Bearer <access_token>
+```
+
+**Переход:** NEW → CONFIRMED
+
+**Права доступа:**
+- Владелец организации (для бронирований на свои услуги)
+- Администратор
+
+**Валидация:**
+- Можно подтвердить только бронирования со статусом NEW
+- Автоматическая проверка прав
+
+Ответ:
+```json
+{
+  "message": "Бронирование успешно подтверждено",
+  "confirmed_by": "organization",
+  "old_status": "NEW",
+  "booking": { ... }
+}
+```
+
+##### Завершить бронирование
+
+```http
+POST /api/bookings/{id}/complete/
+Authorization: Bearer <access_token>
+```
+
+**Переход:** CONFIRMED → DONE
+
+**Права доступа:**
+- Владелец организации (для бронирований на свои услуги)
+- Администратор
+
+**Валидация:**
+- Можно завершить только бронирования со статусом CONFIRMED
+- Автоматическая проверка прав
+
+Ответ:
+```json
+{
+  "message": "Бронирование успешно завершено",
+  "completed_by": "organization",
+  "old_status": "CONFIRMED",
+  "booking": { ... }
+}
+```
+
+##### Отменить бронирование
 
 ```http
 POST /api/bookings/{id}/cancel/
@@ -962,6 +1106,44 @@ Authorization: Bearer <access_token>
 {
   "error": "Нельзя отменить завершенное бронирование"
 }
+```
+
+#### Способ 2: Стандартный PATCH (альтернатива)
+
+Можно также использовать стандартный PATCH endpoint для прямого изменения статуса:
+
+```http
+PATCH /api/bookings/{id}/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "status": "CONFIRMED"
+}
+```
+
+**Доступные статусы:**
+- `NEW` - новое бронирование
+- `CONFIRMED` - подтвержденное
+- `CANCELLED` - отмененное
+- `DONE` - завершенное
+
+**Важно:**
+- PATCH не выполняет валидацию переходов статусов
+- PATCH не проверяет бизнес-логику (например, можно изменить DONE на NEW)
+- Рекомендуется использовать специализированные endpoints для корректной работы
+
+**Пример:**
+```javascript
+// Подтверждение через PATCH
+fetch(`http://localhost:8000/api/bookings/${invoiceId}/`, {
+  method: 'PATCH',
+  headers: {
+    "Authorization": `Bearer ${access_token}`,
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({"status": "CONFIRMED"})
+})
 ```
 
 ### Формат ответа
@@ -1283,3 +1465,77 @@ Authorization: Bearer <owner_token>
   }
 }
 ```
+
+### Сценарий 8: Подтверждение бронирования организацией
+
+```http
+POST /api/bookings/12/confirm/
+Authorization: Bearer <owner_token>
+```
+
+Организация может подтвердить новое бронирование (NEW → CONFIRMED):
+
+```json
+{
+  "message": "Бронирование успешно подтверждено",
+  "confirmed_by": "organization",
+  "old_status": "NEW",
+  "booking": {
+    "id": 12,
+    "status": "CONFIRMED",
+    "customerName": "Петр Иванов",
+    "dateTime": "26/03/2026 10:00",
+    ...
+  }
+}
+```
+
+Ошибки:
+- 403: Нет прав (только организация или админ)
+- 400: Нельзя подтвердить бронирование с другим статусом (только NEW)
+
+### Сценарий 9: Завершение бронирования организацией
+
+```http
+POST /api/bookings/13/complete/
+Authorization: Bearer <owner_token>
+```
+
+Организация может завершить подтвержденное бронирование (CONFIRMED → DONE):
+
+```json
+{
+  "message": "Бронирование успешно завершено",
+  "completed_by": "organization",
+  "old_status": "CONFIRMED",
+  "booking": {
+    "id": 13,
+    "status": "DONE",
+    "customerName": "Анна Смирнова",
+    "dateTime": "25/03/2026 16:00",
+    ...
+  }
+}
+```
+
+Ошибки:
+- 403: Нет прав (только организация или админ)
+- 400: Нельзя завершить бронирование с другим статусом (только CONFIRMED)
+
+## Переходы статусов бронирований
+
+```
+NEW → CONFIRMED (подтверждение организацией)
+NEW → CANCELLED (отмена клиентом/организацией/админом)
+
+CONFIRMED → DONE (завершение организацией)
+CONFIRMED → CANCELLED (отмена клиентом/организацией/админом)
+
+CANCELLED - финальный статус
+DONE - финальный статус
+```
+
+Доступные действия:
+- `POST /api/bookings/{id}/confirm/` - подтверждение (организация, админ)
+- `POST /api/bookings/{id}/complete/` - завершение (организация, админ)
+- `POST /api/bookings/{id}/cancel/` - отмена (клиент, организация, админ)

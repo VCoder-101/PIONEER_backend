@@ -13,11 +13,15 @@ class IsOrganizationOwner(permissions.BasePermission):
         if request.user.role == 'ADMIN':
             return True
         
-        # Владельцы организаций могут создавать и читать
+        # Любой авторизованный пользователь может создать организацию (заявку)
+        if request.method == 'POST' and view.action == 'create':
+            return True
+        
+        # Владельцы организаций могут управлять своими организациями
         if hasattr(request.user, 'organizations') and request.user.organizations.exists():
             return True
         
-        # Клиенты могут только читать
+        # Все авторизованные могут читать
         if request.method in permissions.SAFE_METHODS:
             return True
         
