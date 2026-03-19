@@ -133,6 +133,92 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             'organization': serializer.data
         }, status=status.HTTP_200_OK)
     
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def toggle_active(self, request, pk=None):
+        """
+        Переключить видимость организации (только для администраторов).
+        Изменяет is_active на противоположное значение.
+        """
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут изменять видимость организации'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        organization = self.get_object()
+        old_value = organization.is_active
+        organization.is_active = not old_value
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        
+        return Response({
+            'message': f'Видимость организации {"включена" if organization.is_active else "выключена"}',
+            'old_value': old_value,
+            'new_value': organization.is_active,
+            'organization': serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def activate(self, request, pk=None):
+        """
+        Включить видимость организации (только для администраторов).
+        Устанавливает is_active = True.
+        """
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут изменять видимость организации'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        organization = self.get_object()
+        
+        if organization.is_active:
+            return Response(
+                {'message': 'Организация уже активна'},
+                status=status.HTTP_200_OK
+            )
+        
+        organization.is_active = True
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        
+        return Response({
+            'message': 'Видимость организации включена',
+            'organization': serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def deactivate(self, request, pk=None):
+        """
+        Выключить видимость организации (только для администраторов).
+        Устанавливает is_active = False.
+        """
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Только администраторы могут изменять видимость организации'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        organization = self.get_object()
+        
+        if not organization.is_active:
+            return Response(
+                {'message': 'Организация уже неактивна'},
+                status=status.HTTP_200_OK
+            )
+        
+        organization.is_active = False
+        organization.save()
+        
+        serializer = self.get_serializer(organization)
+        
+        return Response({
+            'message': 'Видимость организации выключена',
+            'organization': serializer.data
+        }, status=status.HTTP_200_OK)
+    
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def pending(self, request):
         """Получить все заявки на рассмотрении (только для администраторов)"""

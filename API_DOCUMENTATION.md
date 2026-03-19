@@ -27,11 +27,15 @@
 - **БАГ-009:** Добавлена проверка уникальности названия организации
 - **БАГ-010:** Услуги можно создавать только для одобренных организаций
 - **БАГ-011:** Календарь возвращает поле `bookingStatus` (active/archived)
+- **БАГ-012:** Добавлена возможность управления видимостью организаций (is_active)
 
 ### Новые endpoints
 
 - `POST /api/bookings/{id}/confirm/` - подтверждение бронирования (организация/админ)
 - `POST /api/bookings/{id}/complete/` - завершение бронирования (организация/админ)
+- `POST /api/organizations/{id}/toggle_active/` - переключить видимость организации (админ)
+- `POST /api/organizations/{id}/activate/` - включить видимость организации (админ)
+- `POST /api/organizations/{id}/deactivate/` - выключить видимость организации (админ)
 - `GET/POST /api/organizations/schedules/` - управление расписанием организаций
 - `GET/POST /api/organizations/holidays/` - управление выходными днями
 - `GET/POST /api/organizations/service-availability/` - управление доступностью услуг
@@ -620,6 +624,123 @@ Authorization: Bearer <access_token>
   }
 }
 ```
+
+### Управление видимостью организаций (только для администраторов)
+
+Администраторы могут управлять видимостью организаций через поле `is_active`. Это позволяет скрывать организации от клиентов без удаления.
+
+#### Способ 1: Через PATCH запрос
+
+```http
+PATCH /api/organizations/{id}/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "is_active": false
+}
+```
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "id": 5,
+  "name": "Чистый Кузов",
+  "is_active": false,
+  ...
+}
+```
+
+Важно:
+- Только администраторы могут изменять `is_active`
+- Владельцы организаций не могут изменять это поле
+- При попытке изменения не-администратором вернется ошибка валидации
+
+#### Способ 2: Специализированные endpoints
+
+##### Переключить видимость
+
+```http
+POST /api/organizations/{id}/toggle_active/
+Authorization: Bearer <access_token>
+```
+
+Изменяет `is_active` на противоположное значение.
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "message": "Видимость организации выключена",
+  "old_value": true,
+  "new_value": false,
+  "organization": {
+    "id": 5,
+    "is_active": false,
+    ...
+  }
+}
+```
+
+##### Включить видимость
+
+```http
+POST /api/organizations/{id}/activate/
+Authorization: Bearer <access_token>
+```
+
+Устанавливает `is_active = true`.
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "message": "Видимость организации включена",
+  "organization": {
+    "id": 5,
+    "is_active": true,
+    ...
+  }
+}
+```
+
+##### Выключить видимость
+
+```http
+POST /api/organizations/{id}/deactivate/
+Authorization: Bearer <access_token>
+```
+
+Устанавливает `is_active = false`.
+
+Доступ: только `ADMIN`
+
+Ответ:
+
+```json
+{
+  "message": "Видимость организации выключена",
+  "organization": {
+    "id": 5,
+    "is_active": false,
+    ...
+  }
+}
+```
+
+#### Влияние is_active на видимость
+
+- `is_active = true` - организация видна всем клиентам (если одобрена)
+- `is_active = false` - организация скрыта от клиентов, но владелец и админ видят её
+
+Клиенты видят только организации с `is_active=true` и `organization_status='approved'`.
 
 Роутер также даёт:
 

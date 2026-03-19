@@ -36,6 +36,32 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'owner', 'created_at', 'organizationStatus', 'organizationDateApproved', 'countServices', 'summaryPrice']
     
+    def validate_is_active(self, value):
+        """
+        Проверяет права на изменение is_active.
+        Только ADMIN может изменять видимость организации.
+        """
+        # Получаем пользователя из контекста
+        request = self.context.get('request')
+        if not request:
+            return value
+        
+        # Если это создание (нет instance), разрешаем
+        if not self.instance:
+            return value
+        
+        # Если значение не изменилось, разрешаем
+        if self.instance.is_active == value:
+            return value
+        
+        # Проверяем права: только ADMIN может изменять is_active
+        if request.user.role != 'ADMIN':
+            raise serializers.ValidationError(
+                "Только администраторы могут изменять видимость организации"
+            )
+        
+        return value
+    
     def get_countServices(self, obj):
         """Вычисляет количество активных услуг организации"""
         return obj.services.filter(is_active=True).count()
