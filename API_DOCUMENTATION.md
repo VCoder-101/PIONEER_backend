@@ -2,6 +2,18 @@
 
 ## Последние обновления (Март 2026)
 
+### Новая функциональность: Система управления расписанием и слотами
+
+Реализована полноценная система управления временем работы организаций и доступными слотами для записи:
+
+- **Расписание организаций** - настройка рабочих дней, времени работы, перерывов
+- **Выходные дни** - управление праздниками и нерабочими днями
+- **Доступность услуг** - специфичное расписание для отдельных услуг
+- **Доступные слоты** - автоматическая генерация свободных слотов с учетом всех ограничений
+- **Валидация бронирований** - автоматическая проверка доступности времени при создании записи
+
+Подробности в разделе "Управление расписанием и доступными слотами" ниже.
+
 ### Исправленные баги
 
 - **БАГ-001:** Инвалидация access токенов при обновлении - старые токены теперь немедленно инвалидируются
@@ -20,6 +32,10 @@
 
 - `POST /api/bookings/{id}/confirm/` - подтверждение бронирования (организация/админ)
 - `POST /api/bookings/{id}/complete/` - завершение бронирования (организация/админ)
+- `GET/POST /api/organizations/schedules/` - управление расписанием организаций
+- `GET/POST /api/organizations/holidays/` - управление выходными днями
+- `GET/POST /api/organizations/service-availability/` - управление доступностью услуг
+- `GET /api/organizations/available-slots/for_service/` - получение доступных слотов
 
 ### Breaking Changes
 
@@ -1539,3 +1555,502 @@ DONE - финальный статус
 - `POST /api/bookings/{id}/confirm/` - подтверждение (организация, админ)
 - `POST /api/bookings/{id}/complete/` - завершение (организация, админ)
 - `POST /api/bookings/{id}/cancel/` - отмена (клиент, организация, админ)
+
+
+---
+
+## Управление расписанием и доступными слотами
+
+### Обзор
+
+Система управления временем работы организаций и доступными слотами для записи включает:
+
+- **Расписание организаций** - рабочие дни, время работы, перерывы, длительность слотов
+- **Выходные дни** - праздники и нерабочие дни
+- **Доступность услуг** - специфичное расписание для отдельных услуг
+- **Доступные слоты** - автоматическая генерация свободных слотов с учетом всех ограничений
+
+### Расписание организаций
+
+#### Получить расписание
+
+```http
+GET /api/organizations/schedules/
+Authorization: Bearer <access_token>
+```
+
+Фильтры:
+- `organization` - ID организации
+- `weekday` - день недели (0-6, где 0 = понедельник)
+- `is_working_day` - рабочий день (true/false)
+- `is_active` - активно (true/false)
+
+Ответ:
+
+```json
+{
+  "count": 7,
+  "results": [
+    {
+      "id": 1,
+      "organization": 5,
+      "weekday": 0,
+      "weekday_display": "Понедельник",
+      "is_working_day": true,
+      "open_time": "09:00:00",
+      "close_time": "18:00:00",
+      "break_start": "13:00:00",
+      "break_end": "14:00:00",
+      "slot_duration": 30,
+      "is_active": true,
+      "created_at": "2026-03-19T10:00:00Z",
+      "updated_at": "2026-03-19T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Создать расписание
+
+```http
+POST /api/organizations/schedules/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "organization": 5,
+  "weekday": 0,
+  "is_working_day": true,
+  "open_time": "09:00",
+  "close_time": "18:00",
+  "break_start": "13:00",
+  "break_end": "14:00",
+  "slot_duration": 30
+}
+```
+
+Правила:
+- Владелец может создавать расписание только для своих организаций
+- ADMIN может создавать для любых организаций
+- `weekday` - уникален для организации (0-6)
+- `open_time` должно быть раньше `close_time`
+- `break_start` и `break_end` должны быть в рабочее время
+- `slot_duration` - от 5 до 240 минут
+
+#### Обновить расписание
+
+```http
+PATCH /api/organizations/schedules/{id}/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "open_time": "08:00",
+  "close_time": "20:00"
+}
+```
+
+#### Удалить расписание
+
+```http
+DELETE /api/organizations/schedules/{id}/
+Authorization: Bearer <access_token>
+```
+
+### Выходные дни
+
+#### Получить выходные
+
+```http
+GET /api/organizations/holidays/
+Authorization: Bearer <access_token>
+```
+
+Фильтры:
+- `organization` - ID организации
+- `date` - дата (YYYY-MM-DD)
+- `is_active` - активно (true/false)
+
+Ответ:
+
+```json
+{
+  "count": 2,
+  "results": [
+    {
+      "id": 1,
+      "organization": 5,
+      "date": "2026-05-01",
+      "reason": "Праздник труда",
+      "is_active": true,
+      "created_at": "2026-03-19T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Создать выходной день
+
+```http
+POST /api/organizations/holidays/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "organization": 5,
+  "date": "2026-05-01",
+  "reason": "Праздник труда"
+}
+```
+
+Правила:
+- Владелец может создавать выходные только для своих организаций
+- ADMIN может создавать для любых организаций
+- Комбинация `organization` + `date` уникальна
+
+### Доступность услуг
+
+Специфичное расписание для отдельных услуг (переопределяет общее расписание организации).
+
+#### Получить правила доступности
+
+```http
+GET /api/organizations/service-availability/
+Authorization: Bearer <access_token>
+```
+
+Фильтры:
+- `service` - ID услуги
+- `weekday` - день недели (0-6)
+- `is_active` - активно (true/false)
+
+Ответ:
+
+```json
+{
+  "count": 1,
+  "results": [
+    {
+      "id": 1,
+      "service": 10,
+      "service_title": "Шиномонтаж R16",
+      "weekday": 0,
+      "weekday_display": "Понедельник",
+      "available_from": "10:00:00",
+      "available_to": "17:00:00",
+      "max_bookings_per_slot": 2,
+      "is_active": true,
+      "created_at": "2026-03-19T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Создать правило доступности
+
+```http
+POST /api/organizations/service-availability/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "service": 10,
+  "weekday": 0,
+  "available_from": "10:00",
+  "available_to": "17:00",
+  "max_bookings_per_slot": 2
+}
+```
+
+Правила:
+- Владелец может создавать правила только для услуг своих организаций
+- ADMIN может создавать для любых услуг
+- Комбинация `service` + `weekday` уникальна
+- `available_from` должно быть раньше `available_to`
+- `max_bookings_per_slot` - от 1 до 10
+
+### Доступные слоты
+
+Получение списка доступных слотов для записи на услугу.
+
+#### Получить доступные слоты
+
+```http
+GET /api/organizations/available-slots/for_service/?service_id=10&date=2026-03-25
+Authorization: Bearer <access_token>
+```
+
+Query параметры:
+- `service_id` (обязательно) - ID услуги
+- `date` (обязательно) - дата в формате YYYY-MM-DD
+
+Ответ:
+
+```json
+{
+  "service_id": 10,
+  "service_title": "Шиномонтаж R16",
+  "organization": "Шиномонтаж на Ленина",
+  "date": "2026-03-25",
+  "duration": 60,
+  "slots": [
+    {
+      "time": "09:00",
+      "datetime": "2026-03-25T09:00:00",
+      "available": true,
+      "booked": 0,
+      "capacity": 1
+    },
+    {
+      "time": "09:30",
+      "datetime": "2026-03-25T09:30:00",
+      "available": true,
+      "booked": 0,
+      "capacity": 1
+    },
+    {
+      "time": "10:00",
+      "datetime": "2026-03-25T10:00:00",
+      "available": false,
+      "booked": 1,
+      "capacity": 1
+    }
+  ]
+}
+```
+
+Логика генерации слотов:
+
+1. Проверяется, не выходной ли день (holidays)
+2. Получается расписание организации для дня недели
+3. Проверяется специфичное расписание услуги (если есть)
+4. Генерируются слоты с учетом:
+   - Рабочего времени
+   - Перерывов
+   - Длительности услуги
+   - Минимального времени до записи (1 час от текущего момента)
+   - Существующих бронирований
+   - Максимального количества записей на слот
+
+Ошибки:
+
+```json
+// Отсутствуют параметры
+{
+  "error": "Требуются параметры service_id и date"
+}
+
+// Услуга не найдена
+{
+  "error": "Услуга не найдена"
+}
+
+// Неверный формат даты
+{
+  "error": "Неверный формат даты. Используйте YYYY-MM-DD"
+}
+
+// Прошедшая дата
+{
+  "error": "Нельзя записаться на прошедшую дату"
+}
+```
+
+### Валидация при создании бронирования
+
+При создании или обновлении бронирования автоматически проверяется:
+
+1. **Время не в прошлом** - нельзя записаться на прошедшее время
+2. **Минимальное время** - минимум 1 час от текущего момента
+3. **Выходной день** - организация не работает в этот день
+4. **Расписание** - организация работает в этот день недели
+5. **Рабочее время** - время попадает в рабочие часы
+6. **Перерыв** - время не попадает на перерыв
+7. **Доступность услуги** - услуга доступна в это время (если есть специфичное расписание)
+8. **Занятость слота** - слот не занят другими бронированиями
+
+Примеры ошибок:
+
+```json
+// Прошедшее время
+{
+  "scheduled_at": ["Нельзя записаться на прошедшее время"]
+}
+
+// Слишком рано
+{
+  "scheduled_at": ["Минимальное время до записи - 1 час"]
+}
+
+// Выходной
+{
+  "scheduled_at": ["Организация не работает 01.05.2026"]
+}
+
+// Нерабочий день
+{
+  "scheduled_at": ["Организация не работает в этот день недели"]
+}
+
+// Вне рабочего времени
+{
+  "scheduled_at": ["Организация работает с 09:00 до 18:00"]
+}
+
+// Перерыв
+{
+  "scheduled_at": ["Время попадает на перерыв (13:00 - 14:00)"]
+}
+
+// Услуга недоступна
+{
+  "scheduled_at": ["Услуга доступна с 10:00 до 17:00"]
+}
+
+// Слот занят
+{
+  "scheduled_at": ["Это время уже занято"]
+}
+```
+
+### Примеры использования
+
+#### 1. Настройка расписания для новой организации
+
+```javascript
+// Создаем расписание на всю неделю
+const weekdays = [
+  { day: 0, name: 'Понедельник' },
+  { day: 1, name: 'Вторник' },
+  { day: 2, name: 'Среда' },
+  { day: 3, name: 'Четверг' },
+  { day: 4, name: 'Пятница' },
+  { day: 5, name: 'Суббота' },
+  { day: 6, name: 'Воскресенье' }
+];
+
+for (const { day } of weekdays) {
+  const isWorkingDay = day < 6; // Пн-Сб рабочие
+  
+  await fetch('http://localhost:8000/api/organizations/schedules/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      organization: 5,
+      weekday: day,
+      is_working_day: isWorkingDay,
+      open_time: isWorkingDay ? '09:00' : '10:00',
+      close_time: isWorkingDay ? '18:00' : '16:00',
+      break_start: '13:00',
+      break_end: '14:00',
+      slot_duration: 30
+    })
+  });
+}
+```
+
+#### 2. Добавление праздничных дней
+
+```javascript
+const holidays = [
+  { date: '2026-05-01', reason: 'Праздник труда' },
+  { date: '2026-05-09', reason: 'День Победы' },
+  { date: '2026-06-12', reason: 'День России' }
+];
+
+for (const holiday of holidays) {
+  await fetch('http://localhost:8000/api/organizations/holidays/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      organization: 5,
+      ...holiday
+    })
+  });
+}
+```
+
+#### 3. Настройка специального расписания для услуги
+
+```javascript
+// Шиномонтаж доступен только в определенные часы
+await fetch('http://localhost:8000/api/organizations/service-availability/', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${access_token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    service: 10,
+    weekday: 0, // Понедельник
+    available_from: '10:00',
+    available_to: '17:00',
+    max_bookings_per_slot: 2 // Можно записать 2 клиентов одновременно
+  })
+});
+```
+
+#### 4. Получение доступных слотов и создание бронирования
+
+```javascript
+// 1. Получаем доступные слоты
+const response = await fetch(
+  'http://localhost:8000/api/organizations/available-slots/for_service/?service_id=10&date=2026-03-25',
+  {
+    headers: {
+      'Authorization': `Bearer ${access_token}`
+    }
+  }
+);
+
+const data = await response.json();
+console.log('Доступные слоты:', data.slots);
+
+// 2. Выбираем свободный слот
+const availableSlot = data.slots.find(slot => slot.available);
+
+// 3. Создаем бронирование
+await fetch('http://localhost:8000/api/bookings/', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${access_token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    service: 10,
+    scheduled_at: availableSlot.datetime,
+    car_model: 'Lada Vesta',
+    wheel_diameter: 16
+  })
+});
+```
+
+### Права доступа
+
+| Действие | CLIENT (владелец) | CLIENT (обычный) | ADMIN |
+|----------|-------------------|------------------|-------|
+| Просмотр расписания | Свои организации | Нет | Все |
+| Создание расписания | Свои организации | Нет | Все |
+| Редактирование расписания | Свои организации | Нет | Все |
+| Удаление расписания | Свои организации | Нет | Все |
+| Просмотр выходных | Свои организации | Нет | Все |
+| Создание выходных | Свои организации | Нет | Все |
+| Просмотр доступности услуг | Свои организации | Нет | Все |
+| Создание доступности услуг | Свои организации | Нет | Все |
+| Просмотр доступных слотов | Да | Да | Да |
+
+### Рекомендации
+
+1. **Создавайте расписание сразу после создания организации** - без расписания клиенты не смогут записаться
+2. **Используйте slot_duration кратный длительности услуг** - это упростит планирование
+3. **Настраивайте max_bookings_per_slot для услуг, которые можно выполнять параллельно** - например, несколько постов шиномонтажа
+4. **Добавляйте праздничные дни заранее** - клиенты увидят, что организация не работает
+5. **Используйте endpoint available-slots перед созданием бронирования** - это покажет клиенту только доступные слоты
+
+---

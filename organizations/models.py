@@ -128,3 +128,19 @@ class Organization(models.Model):
         elif self.organization_status != 'approved':
             self.organization_date_approved = None
         super().save(*args, **kwargs)
+
+
+# Импортируем модели расписания
+from .availability_models import (
+    OrganizationSchedule,
+    OrganizationHoliday,
+    ServiceAvailability
+)
+
+__all__ = [
+    'City',
+    'Organization',
+    'OrganizationSchedule',
+    'OrganizationHoliday',
+    'ServiceAvailability',
+]

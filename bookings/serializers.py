@@ -37,7 +37,16 @@ class BookingSerializer(serializers.ModelSerializer):
         """
         Валидация данных бронирования.
         Поддерживает оба формата: camelCase и snake_case.
+        Проверяет доступность времени для записи.
         """
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        from organizations.availability_models import (
+            OrganizationSchedule,
+            OrganizationHoliday,
+            ServiceAvailability
+        )
+        
         # Если используется dateTime (camelCase), копируем в scheduled_at
         if 'scheduled_at' not in data and hasattr(self, 'initial_data'):
             if 'dateTime' in self.initial_data:
@@ -55,6 +64,102 @@ class BookingSerializer(serializers.ModelSerializer):
             if 'wheelDiameter' in self.initial_data:
                 # wheelDiameter уже обработан через source='wheel_diameter'
                 pass
+        
+        # Валидация времени записи
+        scheduled_at = data.get('scheduled_at')
+        service = data.get('service')
+        
+        if scheduled_at and service:
+            # Проверяем, что время не в прошлом
+            now = timezone.now()
+            if scheduled_at < now:
+                raise serializers.ValidationError({
+                    'scheduled_at': 'Нельзя записаться на прошедшее время'
+                })
+            
+            # Проверяем минимальное время до записи (1 час)
+            min_time = now + timedelta(hours=1)
+            if scheduled_at < min_time:
+                raise serializers.ValidationError({
+                    'scheduled_at': 'Минимальное время до записи - 1 час'
+                })
+            
+            organization = service.organization
+            weekday = scheduled_at.weekday()
+            date = scheduled_at.date()
+            time = scheduled_at.time()
+            
+            # Проверяем выходной день
+            if OrganizationHoliday.objects.filter(
+                organization=organization,
+                date=date,
+                is_active=True
+            ).exists():
+                raise serializers.ValidationError({
+                    'scheduled_at': f'Организация не работает {date.strftime("%d.%m.%Y")}'
+                })
+            
+            # Проверяем расписание организации
+            try:
+                schedule = OrganizationSchedule.objects.get(
+                    organization=organization,
+                    weekday=weekday,
+                    is_active=True
+                )
+            except OrganizationSchedule.DoesNotExist:
+                raise serializers.ValidationError({
+                    'scheduled_at': f'Организация не работает в этот день недели'
+                })
+            
+            if not schedule.is_working_day:
+                raise serializers.ValidationError({
+                    'scheduled_at': f'Организация не работает в этот день недели'
+                })
+            
+            # Проверяем специфичное расписание услуги
+            service_availability = ServiceAvailability.objects.filter(
+                service=service,
+                weekday=weekday,
+                is_active=True
+            ).first()
+            
+            if service_availability:
+                if time < service_availability.available_from or time >= service_availability.available_to:
+                    raise serializers.ValidationError({
+                        'scheduled_at': f'Услуга доступна с {service_availability.available_from.strftime("%H:%M")} до {service_availability.available_to.strftime("%H:%M")}'
+                    })
+                max_bookings = service_availability.max_bookings_per_slot
+            else:
+                # Используем общее расписание организации
+                if time < schedule.open_time or time >= schedule.close_time:
+                    raise serializers.ValidationError({
+                        'scheduled_at': f'Организация работает с {schedule.open_time.strftime("%H:%M")} до {schedule.close_time.strftime("%H:%M")}'
+                    })
+                
+                # Проверяем перерыв
+                if schedule.break_start and schedule.break_end:
+                    if schedule.break_start <= time < schedule.break_end:
+                        raise serializers.ValidationError({
+                            'scheduled_at': f'Время попадает на перерыв ({schedule.break_start.strftime("%H:%M")} - {schedule.break_end.strftime("%H:%M")})'
+                        })
+                
+                max_bookings = 1
+            
+            # Проверяем занятость слота
+            existing_bookings = Booking.objects.filter(
+                service=service,
+                scheduled_at=scheduled_at,
+                status__in=['NEW', 'CONFIRMED']
+            )
+            
+            # Исключаем текущее бронирование при обновлении
+            if self.instance:
+                existing_bookings = existing_bookings.exclude(id=self.instance.id)
+            
+            if existing_bookings.count() >= max_bookings:
+                raise serializers.ValidationError({
+                    'scheduled_at': 'Это время уже занято'
+                })
         
         return data
 
