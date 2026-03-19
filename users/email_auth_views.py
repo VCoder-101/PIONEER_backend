@@ -520,6 +520,7 @@ def verify_universal_auth_code(request):
         "code": "4444",
         "device_id": "unique-device-identifier",
         "name": "Имя пользователя",  // обязательно для регистрации/завершения регистрации
+        "phone": "+7 900 123-45-67",  // обязательно для регистрации/завершения регистрации
         "privacy_policy_accepted": true  // обязательно для регистрации/завершения регистрации
     }
     """
@@ -527,6 +528,7 @@ def verify_universal_auth_code(request):
     code = request.data.get("code", "").strip()
     device_id = request.data.get("device_id")
     name = request.data.get("name", "").strip()
+    phone = request.data.get("phone", "").strip()
     privacy_accepted = request.data.get("privacy_policy_accepted", False)
 
     if not all([email, code, device_id]):
@@ -562,6 +564,11 @@ def verify_universal_auth_code(request):
                     {"error": "Необходимо указать имя для завершения регистрации"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if not phone:
+                return Response(
+                    {"error": "Необходимо указать телефон для завершения регистрации"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if not privacy_accepted:
                 return Response(
                     {"error": "Необходимо принять политику конфиденциальности"},
@@ -570,7 +577,8 @@ def verify_universal_auth_code(request):
 
             # Завершаем регистрацию
             user.name = name
-            user.save(update_fields=['name'])
+            user.phone = phone
+            user.save(update_fields=['name', 'phone'])
             user.accept_privacy_policy()
 
             auth_type = "complete_registration"
@@ -584,6 +592,11 @@ def verify_universal_auth_code(request):
                 {"error": "Необходимо указать имя для регистрации"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if not phone:
+            return Response(
+                {"error": "Необходимо указать телефон для регистрации"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not privacy_accepted:
             return Response(
                 {"error": "Необходимо принять политику конфиденциальности"},
@@ -591,7 +604,7 @@ def verify_universal_auth_code(request):
             )
 
         # Создаём нового пользователя
-        user = User.objects.create_user(email=email, name=name, role="CLIENT")
+        user = User.objects.create_user(email=email, name=name, phone=phone, role="CLIENT")
         user.accept_privacy_policy()
 
         auth_type = "registration"

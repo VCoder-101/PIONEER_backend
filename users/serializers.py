@@ -7,7 +7,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'role', 'is_active', 'privacy_policy_accepted_at', 'created_at', 'last_login_at', 'cars']
+        fields = ['id', 'email', 'name', 'phone', 'role', 'is_active', 'privacy_policy_accepted_at', 'created_at', 'last_login_at', 'cars']
         read_only_fields = ['id', 'created_at', 'last_login_at', 'cars']
 
     def get_cars(self, obj):

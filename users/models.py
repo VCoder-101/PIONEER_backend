@@ -48,6 +48,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name="Имя",
         help_text="Имя пользователя (опционально)"
     )
+    phone = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name="Телефон",
+        db_index=True,
+        help_text="Номер телефона пользователя"
+    )
     role = models.CharField(
         max_length=20,
         choices=ROLE_CHOICES,

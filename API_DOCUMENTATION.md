@@ -167,6 +167,7 @@ Content-Type: application/json
   "code": "4444",
   "device_id": "web-chrome-01",
   "name": "Иван Иванов",
+  "phone": "+7 900 123-45-67",
   "privacy_policy_accepted": true
 }
 ```
@@ -174,8 +175,8 @@ Content-Type: application/json
 Поля:
 
 - `email`, `code`, `device_id` — обязательны всегда;
-- `name` и `privacy_policy_accepted` — обязательны для регистрации и завершения регистрации;
-- для обычного логина `name` не нужен.
+- `name`, `phone` и `privacy_policy_accepted` — обязательны для регистрации и завершения регистрации;
+- для обычного логина `name` и `phone` не нужны.
 
 Ответ:
 
@@ -186,6 +187,7 @@ Content-Type: application/json
     "id": "cfa2a7cf-35c4-40c5-b50c-cc4cfcb2c8f7",
     "email": "user@example.com",
     "name": "Иван Иванов",
+    "phone": "+7 900 123-45-67",
     "role": "CLIENT",
     "is_new": true,
     "cars": []
@@ -1053,6 +1055,7 @@ Authorization: Bearer <access_token>
     {
       "id": 10,
       "customerName": "Иван Петров",
+      "customerPhone": "+7 900 123-45-67",
       "dateTime": "25/03/2026 10:00",
       "carModel": "BMW X5",
       "serviceMethod": "Комплексная мойка",
@@ -1064,6 +1067,7 @@ Authorization: Bearer <access_token>
     {
       "id": 11,
       "customerName": "Мария Сидорова",
+      "customerPhone": "+7 905 987-65-43",
       "dateTime": "25/03/2026 15:00",
       "carModel": "Toyota Camry",
       "serviceMethod": "Экспресс мойка",
@@ -1075,6 +1079,17 @@ Authorization: Bearer <access_token>
   ]
 }
 ```
+
+Поля в календарном формате:
+- `customerName` - имя клиента
+- `customerPhone` - телефон клиента (может быть null)
+- `dateTime` - дата и время записи в формате DD/MM/YYYY HH:MM
+- `carModel` - модель автомобиля
+- `serviceMethod` - название услуги
+- `duration` - длительность услуги в минутах
+- `price` - стоимость услуги
+- `status` - статус бронирования (NEW, CONFIRMED, CANCELLED, DONE)
+- `bookingStatus` - статус для календаря (active/archived)
 
 **БАГ-011 FIX:** Добавлено поле `bookingStatus`:
 - `active` - NEW, CONFIRMED (активные бронирования)

@@ -167,6 +167,7 @@ class BookingSerializer(serializers.ModelSerializer):
 class InvoiceSerializer(serializers.ModelSerializer):
     """Сериализатор для формата invoices (упрощенный)"""
     customerName = serializers.CharField(source='user.name', read_only=True)
+    customerPhone = serializers.CharField(source='user.phone', read_only=True)
     dateTime = serializers.DateTimeField(source='scheduled_at', format='%d/%m/%Y %H:%M', read_only=True)
     carModel = serializers.CharField(source='car_model', read_only=True)
     serviceMethod = serializers.CharField(source='service.title', read_only=True)
@@ -177,7 +178,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Booking
-        fields = ['id', 'customerName', 'dateTime', 'carModel', 'serviceMethod', 'duration', 'price', 'status', 'bookingStatus']
+        fields = ['id', 'customerName', 'customerPhone', 'dateTime', 'carModel', 'serviceMethod', 'duration', 'price', 'status', 'bookingStatus']
     
     def get_bookingStatus(self, obj):
         """
