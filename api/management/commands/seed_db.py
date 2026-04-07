@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from bookings.models import Booking, BookingItem
 from organizations.models import City, Organization
+from organizations.availability_models import OrganizationSchedule
 from services.models import Service, ServiceItem
 
 User = get_user_model()
@@ -169,6 +170,9 @@ class Command(BaseCommand):
         # 2. Организации + владельцы
         orgs = self._seed_organizations(city)
 
+        # 2.5. Расписание организаций
+        self._seed_schedules(orgs)
+
         # 3. Услуги и позиции
         all_services = self._seed_services(orgs)
 
@@ -234,6 +238,49 @@ class Command(BaseCommand):
             orgs.append(org)
 
         return orgs
+
+    def _seed_schedules(self, orgs: list[Organization]) -> None:
+        """
+        Создаёт расписание для каждой организации:
+        Пн–Пт 09:00–20:00, Сб 10:00–18:00, Вс — выходной.
+        """
+        from datetime import time as dt_time
+
+        weekday_configs = [
+            # (weekday, is_working_day, open_time, close_time)
+            (0, True,  dt_time(9, 0), dt_time(20, 0)),   # Пн
+            (1, True,  dt_time(9, 0), dt_time(20, 0)),   # Вт
+            (2, True,  dt_time(9, 0), dt_time(20, 0)),   # Ср
+            (3, True,  dt_time(9, 0), dt_time(20, 0)),   # Чт
+            (4, True,  dt_time(9, 0), dt_time(20, 0)),   # Пт
+            (5, True,  dt_time(10, 0), dt_time(18, 0)),  # Сб
+            (6, False, dt_time(0, 0), dt_time(0, 0)),    # Вс — выходной
+        ]
+
+        created_count = 0
+        skipped_count = 0
+
+        for org in orgs:
+            for weekday, is_working, open_t, close_t in weekday_configs:
+                _, created = OrganizationSchedule.objects.get_or_create(
+                    organization=org,
+                    weekday=weekday,
+                    defaults={
+                        "is_working_day": is_working,
+                        "open_time": open_t,
+                        "close_time": close_t,
+                        "slot_duration": 30,
+                        "is_active": is_working,
+                    },
+                )
+                if created:
+                    created_count += 1
+                else:
+                    skipped_count += 1
+
+        self.stdout.write(
+            f"  Расписание: создано {created_count}, пропущено (уже есть) {skipped_count}"
+        )
 
     def _seed_services(self, orgs: list[Organization]) -> list[Service]:
         """

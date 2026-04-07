@@ -41,19 +41,28 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Organization.objects.all()
+        elif user.role == 'ORGANIZATION':
+            # Владелец видит только свои организации (даже если их 0)
+            return Organization.objects.filter(owner=user)
         else:
-            # Владельцы организаций видят свои организации
-            user_organizations = user.organizations.all()
-            if user_organizations.exists():
-                return user_organizations
-            else:
-                # Обычные клиенты видят только активные одобренные организации
-                return Organization.objects.filter(is_active=True, organization_status='approved')
+            # CLIENT — видит только активные одобренные (каталог)
+            return Organization.objects.filter(is_active=True, organization_status='approved')
     
     def perform_create(self, serializer):
         # Автоматически устанавливаем владельца при создании
         serializer.save(owner=self.request.user)
     
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def me(self, request):
+        """Организации текущего пользователя (owner == request.user)"""
+        qs = Organization.objects.filter(owner=request.user)
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def approve(self, request, pk=None):
         """Одобрить заявку организации (только для администраторов)"""
