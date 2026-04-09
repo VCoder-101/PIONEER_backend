@@ -196,15 +196,58 @@ class BookingViewSet(viewsets.ModelViewSet):
     def calendar(self, request):
         """
         Получить бронирования в календарном формате (invoices).
-        Возвращает упрощенный формат для отображения в календаре.
+        Без org_id возвращает все записи владельца (старое поведение).
+        Рекомендуется использовать /api/bookings/calendar/{org_id}/ для конкретной организации.
         """
         queryset = self.filter_queryset(self.get_queryset())
-        
+
         # Применяем пагинацию
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = InvoiceSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
-        
+
+        serializer = InvoiceSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path=r'calendar/(?P<org_id>[^/.]+)',
+        permission_classes=[IsAuthenticated],
+    )
+    def calendar_by_org(self, request, org_id=None):
+        """
+        Получить бронирования конкретной организации в календарном формате.
+        Проверяет, что текущий пользователь — владелец организации.
+        """
+        from organizations.models import Organization
+
+        # Проверяем что организация существует и принадлежит пользователю
+        try:
+            organization = Organization.objects.get(id=org_id)
+        except (Organization.DoesNotExist, ValueError):
+            return Response(
+                {'error': 'Организация не найдена'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user = request.user
+        if user.role != 'ADMIN' and organization.owner != user:
+            return Response(
+                {'error': 'У вас нет доступа к этой организации'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        queryset = Booking.objects.filter(
+            service__organization=organization,
+        )
+        queryset = self.filter_queryset(queryset)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = InvoiceSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = InvoiceSerializer(queryset, many=True)
         return Response(serializer.data)
