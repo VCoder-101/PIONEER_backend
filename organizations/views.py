@@ -27,7 +27,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     """
     API для управления организациями.
     - ADMIN: видит все организации
-    - ORGANIZATION: видит только свои организации
+    - Владелец организации: видит только свои организации
     - CLIENT: видит все организации (только чтение)
     """
     serializer_class = OrganizationSerializer
@@ -41,12 +41,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Organization.objects.all()
-        elif user.role == 'ORGANIZATION':
-            # Владелец видит только свои организации (даже если их 0)
-            return Organization.objects.filter(owner=user)
-        else:
-            # CLIENT — видит только активные одобренные (каталог)
-            return Organization.objects.filter(is_active=True, organization_status='approved')
+        # Любой CLIENT видит каталог: только одобренные и активные
+        # Для "своих" организаций есть отдельный эндпоинт /me/
+        return Organization.objects.filter(is_active=True, organization_status='approved')
     
     def perform_create(self, serializer):
         # Автоматически устанавливаем владельца при создании

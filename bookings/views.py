@@ -14,7 +14,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     """
     API для управления бронированиями.
     - ADMIN: видит все бронирования
-    - ORGANIZATION: видит бронирования на услуги своих организаций
+    - Владелец организации: видит бронирования на услуги своих организаций
     - CLIENT: видит только свои бронирования
     """
     serializer_class = BookingSerializer

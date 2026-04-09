@@ -1,5 +1,8 @@
-fix: календарь записей теперь фильтруется по конкретной организации
+refactor: убрана роль ORGANIZATION, переход на ownership-подход
 
-Добавлен эндпоинт GET /api/bookings/calendar/{org_id}/ — возвращает записи только указанной организации
-Проверка прав: только владелец организации или ADMIN имеет доступ
-Старый эндпоинт /api/bookings/calendar/ сохранён для обратной совместимости
+- Убраны все проверки role == 'ORGANIZATION' из production-кода
+- get_queryset в OrganizationViewSet, ServiceViewSet, ServiceItemViewSet упрощён: ADMIN видит всё, остальные — каталог approved/active
+- Для просмотра своих организаций используется /me/
+- seed_db: владельцы организаций создаются с role=CLIENT
+- Удалены неиспользуемые permissions: IsOwner, IsClient, IsAdminOrOwner, IsAdminOrReadOnly
+- В БД обновлены 10 пользователей: ORGANIZATION → CLIENT

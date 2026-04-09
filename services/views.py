@@ -13,7 +13,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     """
     API для управления услугами.
     - ADMIN: видит все услуги
-    - ORGANIZATION: видит и управляет услугами своих организаций
+    - Владелец организации: видит и управляет услугами своих организаций
     - CLIENT: видит только активные услуги (только чтение)
     """
     serializer_class = ServiceSerializer
@@ -69,15 +69,8 @@ class ServiceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return Service.objects.all()
-        else:
-            # Проверяем, является ли пользователь владельцем организации
-            user_organizations = user.organizations.all()
-            if user_organizations.exists():
-                # Владелец организации видит все свои услуги (включая ghost)
-                return Service.objects.filter(organization__owner=user)
-            else:
-                # Обычные клиенты видят только активные услуги со статусом 'active'
-                return Service.objects.filter(is_active=True, status='active')
+        # Любой CLIENT видит каталог: только активные услуги
+        return Service.objects.filter(is_active=True, status='active')
 
 
 class ServiceItemViewSet(viewsets.ModelViewSet):
@@ -94,16 +87,9 @@ class ServiceItemViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'ADMIN':
             return ServiceItem.objects.all()
-        else:
-            # Проверяем, является ли пользователь владельцем организации
-            user_organizations = user.organizations.all()
-            if user_organizations.exists():
-                # Владельцы организаций видят все элементы своих услуг
-                return ServiceItem.objects.filter(service__organization__owner=user)
-            else:
-                # Обычные клиенты видят только элементы активных услуг со статусом 'active'
-                return ServiceItem.objects.filter(
-                    is_active=True, 
-                    service__is_active=True, 
-                    service__status='active'
-                )
+        # Любой CLIENT видит только элементы активных услуг
+        return ServiceItem.objects.filter(
+            is_active=True,
+            service__is_active=True,
+            service__status='active'
+        )

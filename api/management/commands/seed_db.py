@@ -4,7 +4,7 @@
 
 Создаёт:
   - 1 город (Самара)
-  - 10 организаций с владельцами (роль ORGANIZATION)
+  - 10 организаций с владельцами (роль CLIENT)
   - 2 услуги на организацию (Мойка, Шиномонтаж) с позициями ServiceItem
   - 20 клиентов (роль CLIENT)
   - 15 бронирований в разных статусах и датах
@@ -210,7 +210,7 @@ class Command(BaseCommand):
                 email=owner_email,
                 defaults={
                     "name": f"Владелец {data['name']}",
-                    "role": "ORGANIZATION",
+                    "role": "CLIENT",
                     "is_active": True,
                 },
             )
