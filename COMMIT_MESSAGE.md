@@ -1,8 +1,7 @@
-refactor: убрана роль ORGANIZATION, переход на ownership-подход
+fix: timezone Europe/Samara, валидация organization_type, seed_db 20 организаций
 
-- Убраны все проверки role == 'ORGANIZATION' из production-кода
-- get_queryset в OrganizationViewSet, ServiceViewSet, ServiceItemViewSet упрощён: ADMIN видит всё, остальные — каталог approved/active
-- Для просмотра своих организаций используется /me/
-- seed_db: владельцы организаций создаются с role=CLIENT
-- Удалены неиспользуемые permissions: IsOwner, IsClient, IsAdminOrOwner, IsAdminOrReadOnly
-- В БД обновлены 10 пользователей: ORGANIZATION → CLIENT
+- TIME_ZONE изменён с UTC на Europe/Samara — слоты и валидация записей теперь по самарскому времени
+- availability_views: datetime.now() заменён на timezone.localtime()
+- Сериализатор организации: добавлена валидация organization_type, невалидные значения подставляются как wash
+- seed_db расширен до 20 организаций: 5 wash, 5 tire, 10 комбинированных
+- Исправлено невалидное значение carwash в базе

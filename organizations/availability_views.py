@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Count
+from django.utils import timezone
 from .availability_models import (
     OrganizationSchedule,
     OrganizationHoliday,
@@ -130,8 +131,8 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Проверяем, не прошедшая ли дата
-        if target_date < datetime.now().date():
+        # Проверяем, не прошедшая ли дата (по локальному времени)
+        if target_date < timezone.localtime().date():
             return Response(
                 {'error': 'Нельзя записаться на прошедшую дату'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -207,7 +208,8 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
         
         # Если это сегодня, начинаем с текущего времени + 1 час
         now = timezone.now()
-        if target_date == now.date():
+        local_now = timezone.localtime(now)
+        if target_date == local_now.date():
             min_time = now + timedelta(hours=1)
             if current_time < min_time:
                 current_time = min_time

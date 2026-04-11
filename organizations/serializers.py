@@ -18,7 +18,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         format='%d/%m/%Y',
         read_only=True
     )
-    organizationType = serializers.CharField(source='organization_type')
+    organizationType = serializers.CharField(source='organization_type', required=False)
     orgOgrn = serializers.CharField(source='org_ogrn')
     orgInn = serializers.CharField(source='org_inn')
     orgKpp = serializers.CharField(source='org_kpp')
@@ -116,3 +116,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
             )
         
         return normalized_short_name
+
+    def validate_organizationType(self, value):
+        """
+        Если значение не wash и не tire — молча подставляем wash как дефолт.
+        """
+        valid_types = [choice[0] for choice in Organization.ORGANIZATION_TYPE_CHOICES]
+        if value not in valid_types:
+            return 'wash'
+        return value
