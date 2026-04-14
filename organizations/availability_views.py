@@ -152,13 +152,15 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
     
     def _generate_slots(self, service, target_date):
         """
-        Генерирует список доступных слотов для услуги на указанную дату
+        Генерирует список доступных слотов для услуги на указанную дату.
+        Все расчёты ведутся в локальной таймзоне (settings.TIME_ZONE).
         """
         from django.utils import timezone
-        
+
         organization = service.organization
         weekday = target_date.weekday()
-        
+        local_tz = timezone.get_current_timezone()
+
         # Проверяем выходной день
         if OrganizationHoliday.objects.filter(
             organization=organization,
@@ -166,7 +168,7 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
             is_active=True
         ).exists():
             return []
-        
+
         # Получаем расписание организации
         try:
             schedule = OrganizationSchedule.objects.get(
@@ -177,17 +179,17 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
         except OrganizationSchedule.DoesNotExist:
             # Нет расписания для этого дня
             return []
-        
+
         if not schedule.is_working_day:
             return []
-        
+
         # Проверяем специфичное расписание услуги
         service_availability = ServiceAvailability.objects.filter(
             service=service,
             weekday=weekday,
             is_active=True
         ).first()
-        
+
         if service_availability:
             start_time = service_availability.available_from
             end_time = service_availability.available_to
@@ -196,46 +198,55 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
             start_time = schedule.open_time
             end_time = schedule.close_time
             max_bookings = 1
-        
+
         # Генерируем слоты
         slots = []
         slot_duration = timedelta(minutes=schedule.slot_duration)
         service_duration = timedelta(minutes=service.duration)
-        
-        # Используем timezone-aware datetime
-        current_time = timezone.make_aware(datetime.combine(target_date, start_time))
-        end_datetime = timezone.make_aware(datetime.combine(target_date, end_time))
-        
-        # Если это сегодня, начинаем с текущего времени + 1 час
-        now = timezone.now()
-        local_now = timezone.localtime(now)
+
+        # Создаём aware datetime в локальной таймзоне
+        current_time = timezone.make_aware(
+            datetime.combine(target_date, start_time), local_tz
+        )
+        end_datetime = timezone.make_aware(
+            datetime.combine(target_date, end_time), local_tz
+        )
+
+        # Если это сегодня, отсекаем прошедшие слоты (текущее время + 1 час)
+        local_now = timezone.localtime(timezone.now(), local_tz)
         if target_date == local_now.date():
-            min_time = now + timedelta(hours=1)
+            min_time = local_now + timedelta(hours=1)
             if current_time < min_time:
-                current_time = min_time
-                # Округляем до ближайшего слота
-                minutes = (current_time.minute // schedule.slot_duration + 1) * schedule.slot_duration
-                current_time = current_time.replace(minute=0, second=0, microsecond=0)
-                current_time += timedelta(minutes=minutes)
-        
+                # Округляем вверх до ближайшего слота
+                minutes_since_midnight = min_time.hour * 60 + min_time.minute
+                rounded_minutes = (
+                    (minutes_since_midnight // schedule.slot_duration + 1)
+                    * schedule.slot_duration
+                )
+                current_time = timezone.make_aware(
+                    datetime.combine(target_date, dt_time(0, 0)), local_tz
+                ) + timedelta(minutes=rounded_minutes)
+
         while current_time + service_duration <= end_datetime:
-            slot_time = current_time.time()
-            
+            # Получаем локальное время слота
+            local_slot = timezone.localtime(current_time, local_tz)
+            slot_time = local_slot.time()
+
             # Проверяем перерыв
             if schedule.break_start and schedule.break_end:
                 if schedule.break_start <= slot_time < schedule.break_end:
                     current_time += slot_duration
                     continue
-            
+
             # Проверяем занятость слота
             existing_bookings = Booking.objects.filter(
                 service=service,
                 scheduled_at=current_time,
                 status__in=['NEW', 'CONFIRMED']
             ).count()
-            
+
             is_available = existing_bookings < max_bookings
-            
+
             slots.append({
                 'time': slot_time.strftime('%H:%M'),
                 'datetime': current_time.isoformat(),
@@ -243,7 +254,7 @@ class AvailableSlotsViewSet(viewsets.ViewSet):
                 'booked': existing_bookings,
                 'capacity': max_bookings
             })
-            
+
             current_time += slot_duration
-        
+
         return slots
